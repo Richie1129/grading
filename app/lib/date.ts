@@ -5,9 +5,23 @@
 
 export const APP_TIME_ZONE = 'Asia/Taipei';
 
+/**
+ * Normalizes Intl output so SSR and CSR render byte-identical strings.
+ *
+ * Node and the browser ship different ICU/CLDR versions, and newer CLDR releases
+ * separate the date and time parts with a thin space (U+2009) instead of a plain
+ * space. The two look identical but break React hydration, so all fixed-width
+ * spaces are collapsed to U+0020 and directional marks are stripped.
+ */
+function normalizeIntlOutput(value: string): string {
+  return value
+    .replace(/[\u200E\u200F]/g, '') // LRM / RLM directional marks
+    .replace(/[\u00A0\u2007\u2009\u202F]/g, ' '); // nbsp / figure / thin / narrow-nbsp -> plain space
+}
+
 function formatInTimeZone(date: Date | string, locale: string, options: Intl.DateTimeFormatOptions): string {
   const dateObj = typeof date === 'string' ? new Date(date) : date;
-  return new Intl.DateTimeFormat(locale, options).format(dateObj);
+  return normalizeIntlOutput(new Intl.DateTimeFormat(locale, options).format(dateObj));
 }
 
 export function formatDateForDisplay(date: Date | string): string {
@@ -79,7 +93,7 @@ export function formatTimeInTimeZone(date: Date | string, timeZone: string = APP
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
-  }).replace(/\u200E|\u200F/g, '');
+  });
 }
 
 export function formatDateTimeInTimeZone(
@@ -95,10 +109,13 @@ export function formatDateTimeInTimeZone(
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
-  }).replace(/\u200E|\u200F/g, '');
+  });
 }
 
-export function parseTaipeiDateTimeToUTC(dateValue: string | null | undefined, timeValue: string | null | undefined): Date | null | undefined {
+export function parseTaipeiDateTimeToUTC(
+  dateValue: string | null | undefined,
+  timeValue: string | null | undefined
+): Date | null | undefined {
   if (!dateValue || dateValue.trim() === '') {
     return null;
   }
@@ -121,7 +138,11 @@ export function parseTaipeiDateTimeToUTC(dateValue: string | null | undefined, t
   }
 
   const utcDateCheck = new Date(Date.UTC(year, month - 1, day));
-  if (utcDateCheck.getUTCFullYear() !== year || utcDateCheck.getUTCMonth() !== month - 1 || utcDateCheck.getUTCDate() !== day) {
+  if (
+    utcDateCheck.getUTCFullYear() !== year ||
+    utcDateCheck.getUTCMonth() !== month - 1 ||
+    utcDateCheck.getUTCDate() !== day
+  ) {
     return undefined;
   }
 

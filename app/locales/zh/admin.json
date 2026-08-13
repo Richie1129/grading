@@ -1,0 +1,160 @@
+{
+  "hub": {
+    "title": "管理中心",
+    "welcome": "歡迎回來，{{name}}",
+    "sectionTitle": "管理功能",
+    "sectionSubtitle": "選擇要管理的項目",
+    "features": {
+      "users": {
+        "title": "使用者管理",
+        "description": "管理使用者、角色與權限"
+      },
+      "analytics": {
+        "title": "數據分析",
+        "description": "監控 Agent 對話與批改工作階段"
+      },
+      "queues": {
+        "title": "佇列狀態",
+        "description": "檢視批改佇列與系統狀態"
+      }
+    }
+  },
+  "errors": {
+    "forbiddenTitle": "無權限",
+    "forbidden": "您沒有權限訪問管理員頁面",
+    "genericTitle": "錯誤",
+    "loadFailed": "載入管理頁面時發生錯誤，請稍後再試",
+    "backHome": "返回首頁"
+  },
+  "analytics": {
+    "eyebrow": "管理洞察",
+    "title": "數據分析儀表板",
+    "subtitle": "監控 Agent 工作階段與批改活動",
+    "tabs": {
+      "grading": "批改工作階段",
+      "chat": "對話工作階段"
+    },
+    "overview": {
+      "chatSessions": {
+        "title": "對話工作階段",
+        "description": "Agent 對話總數"
+      },
+      "gradingSessions": {
+        "title": "批改工作階段",
+        "description": "已完成的 AI 批改"
+      },
+      "tokensUsed": {
+        "title": "Token 用量",
+        "description": "API 總消耗量"
+      }
+    },
+    "chatSessions": {
+      "filters": {
+        "allRoles": "所有角色",
+        "allStatus": "所有狀態",
+        "statusActive": "進行中",
+        "statusCompleted": "已完成",
+        "statusError": "錯誤"
+      },
+      "showing": "顯示 <1>{{count}}</1> 筆工作階段",
+      "columns": {
+        "session": "工作階段",
+        "user": "使用者",
+        "role": "角色",
+        "messages": "訊息數",
+        "model": "模型",
+        "tokens": "Token",
+        "duration": "耗時",
+        "status": "狀態"
+      },
+      "loading": "載入工作階段中...",
+      "empty": "找不到工作階段",
+      "untitled": "未命名"
+    },
+    "gradingSessions": {
+      "filters": {
+        "all": "全部",
+        "requiresReview": "需要複審",
+        "noReviewNeeded": "無需複審"
+      },
+      "showing": "顯示 <1>{{count}}</1> 筆工作階段",
+      "columns": {
+        "student": "學生",
+        "file": "檔案",
+        "assignment": "作業",
+        "rubric": "評分標準",
+        "score": "分數",
+        "confidence": "信心度",
+        "gradingTokens": "批改 Token",
+        "sparringTokens": "對話 Token",
+        "geminiConverge": "Gemini 收斂",
+        "review": "複審"
+      },
+      "loading": "載入批改工作階段中...",
+      "empty": "找不到批改工作階段",
+      "calls": "{{count}} 次呼叫",
+      "tokensCount": "{{count}} tokens",
+      "needsReview": "需複審",
+      "ok": "正常"
+    }
+  },
+  "users": {
+    "title": "使用者管理",
+    "subtitle": "管理所有系統使用者與角色",
+    "stats": {
+      "total": "使用者總數",
+      "students": "學生",
+      "teachers": "教師",
+      "admins": "管理員"
+    },
+    "refreshing": "重新載入使用者中...",
+    "sort": {
+      "placeholder": "排序依據",
+      "orderPlaceholder": "排序方式",
+      "newestFirst": "最新優先",
+      "oldestFirst": "最舊優先"
+    },
+    "columns": {
+      "user": "使用者",
+      "name": "姓名",
+      "email": "電子郵件",
+      "role": "角色",
+      "registered": "註冊時間",
+      "ai": "AI",
+      "actions": "操作"
+    },
+    "registeredAt": "註冊於：{{date}}",
+    "aiAccess": "AI 權限",
+    "alwaysEnabled": "永遠啟用",
+    "always": "永遠",
+    "saveRole": "儲存角色",
+    "deleteUser": "刪除使用者",
+    "currentUser": "目前使用者",
+    "you": "你",
+    "dialog": {
+      "title": "確認刪除",
+      "description": "確定要刪除這位使用者嗎？此操作無法復原，並會移除所有相關資料。",
+      "confirm": "刪除使用者"
+    },
+    "toasts": {
+      "roleUpdated": "角色已更新為 {{role}}",
+      "aiEnabled": "AI 功能已啟用",
+      "aiDisabled": "AI 功能已停用",
+      "userDeleted": "使用者已刪除",
+      "updateFailed": "更新失敗"
+    },
+    "actionErrors": {
+      "userIdRequired": "缺少使用者 ID",
+      "invalidAiValue": "AI 權限值無效",
+      "userNotFound": "找不到使用者",
+      "adminAiAlwaysEnabled": "管理員的 AI 權限永遠啟用",
+      "toggleAiFailed": "更新 AI 權限失敗",
+      "invalidRole": "角色無效",
+      "cannotChangeOwnRole": "無法變更自己的角色",
+      "updateRoleFailed": "更新角色失敗",
+      "cannotDeleteSelf": "無法刪除自己的帳號",
+      "deleteFailed": "刪除使用者失敗",
+      "invalidAction": "無效的操作"
+    }
+  }
+}

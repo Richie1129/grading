@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { Calendar, MessageSquare, Clock } from 'lucide-react';
+import { Trans, useTranslation } from 'react-i18next';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { formatDateOnlyInTimeZone, formatTimeInTimeZone } from '@/lib/date';
 
@@ -30,6 +31,7 @@ interface ChatSession {
 }
 
 export function ChatSessionsTab() {
+  const { t } = useTranslation(['admin', 'common']);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ role: '', status: '' });
@@ -66,10 +68,10 @@ export function ChatSessionsTab() {
             onChange={(e) => setFilters({ ...filters, role: e.target.value })}
             className="min-h-[40px] rounded-sm border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-[#D2691E] focus:outline-none focus:ring-2 focus:ring-[#D2691E]/20 dark:focus:border-[#E87D3E] dark:focus:ring-[#E87D3E]/20"
           >
-            <option value="">All Roles</option>
-            <option value="TEACHER">Teacher</option>
-            <option value="STUDENT">Student</option>
-            <option value="ADMIN">Admin</option>
+            <option value="">{t('admin:analytics.chatSessions.filters.allRoles')}</option>
+            <option value="TEACHER">{t('common:roles.teacher')}</option>
+            <option value="STUDENT">{t('common:roles.student')}</option>
+            <option value="ADMIN">{t('common:roles.admin')}</option>
           </select>
 
           <select
@@ -77,14 +79,18 @@ export function ChatSessionsTab() {
             onChange={(e) => setFilters({ ...filters, status: e.target.value })}
             className="min-h-[40px] rounded-sm border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-[#D2691E] focus:outline-none focus:ring-2 focus:ring-[#D2691E]/20 dark:focus:border-[#E87D3E] dark:focus:ring-[#E87D3E]/20"
           >
-            <option value="">All Status</option>
-            <option value="ACTIVE">Active</option>
-            <option value="COMPLETED">Completed</option>
-            <option value="ERROR">Error</option>
+            <option value="">{t('admin:analytics.chatSessions.filters.allStatus')}</option>
+            <option value="ACTIVE">{t('admin:analytics.chatSessions.filters.statusActive')}</option>
+            <option value="COMPLETED">{t('admin:analytics.chatSessions.filters.statusCompleted')}</option>
+            <option value="ERROR">{t('admin:analytics.chatSessions.filters.statusError')}</option>
           </select>
         </div>
         <div className="text-xs text-muted-foreground">
-          Showing <span className="font-semibold text-foreground">{sessions.length.toLocaleString()}</span> sessions
+          <Trans
+            i18nKey="admin:analytics.chatSessions.showing"
+            values={{ count: sessions.length }}
+            components={{ 1: <span className="font-semibold text-foreground" /> }}
+          />
         </div>
       </div>
 
@@ -95,28 +101,28 @@ export function ChatSessionsTab() {
             <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur-sm">
               <tr className="border-b-2 border-[#2B2B2B]">
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Session
+                  {t('admin:analytics.chatSessions.columns.session')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  User
+                  {t('admin:analytics.chatSessions.columns.user')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Role
+                  {t('admin:analytics.chatSessions.columns.role')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Messages
+                  {t('admin:analytics.chatSessions.columns.messages')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Model
+                  {t('admin:analytics.chatSessions.columns.model')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Tokens
+                  {t('admin:analytics.chatSessions.columns.tokens')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Duration
+                  {t('admin:analytics.chatSessions.columns.duration')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Status
+                  {t('admin:analytics.chatSessions.columns.status')}
                 </th>
               </tr>
             </thead>
@@ -124,13 +130,13 @@ export function ChatSessionsTab() {
               {loading ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
-                    Loading sessions...
+                    {t('admin:analytics.chatSessions.loading')}
                   </td>
                 </tr>
               ) : sessions.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
-                    No sessions found
+                    {t('admin:analytics.chatSessions.empty')}
                   </td>
                 </tr>
               ) : (
@@ -147,9 +153,9 @@ export function ChatSessionsTab() {
                         <div>
                           <div
                             className="max-w-[260px] truncate font-medium text-foreground"
-                            title={session.title || 'Untitled'}
+                            title={session.title || t('admin:analytics.chatSessions.untitled')}
                           >
-                            {session.title || 'Untitled'}
+                            {session.title || t('admin:analytics.chatSessions.untitled')}
                           </div>
                           <div className="flex items-center gap-1 text-xs text-muted-foreground">
                             <Calendar className="h-3 w-3" />
@@ -179,7 +185,7 @@ export function ChatSessionsTab() {
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex rounded-full border border-[#D2691E] bg-[#D2691E]/10 px-2 py-1 text-xs font-medium text-[#D2691E]">
-                        {session.userRole}
+                        {t(`common:roles.${session.userRole.toLowerCase()}`, session.userRole)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-foreground">{session._count.messages}</td>
@@ -219,9 +225,9 @@ export function ChatSessionsTab() {
       {/* Mobile Card View */}
       <div className="space-y-4 sm:hidden">
         {loading ? (
-          <div className="py-8 text-center text-gray-500">Loading sessions...</div>
+          <div className="py-8 text-center text-gray-500">{t('admin:analytics.chatSessions.loading')}</div>
         ) : sessions.length === 0 ? (
-          <div className="py-8 text-center text-gray-500">No sessions found</div>
+          <div className="py-8 text-center text-gray-500">{t('admin:analytics.chatSessions.empty')}</div>
         ) : (
           sessions.map((session) => (
             <div key={session.id} className="rounded-sm border-2 border-[#2B2B2B] bg-card p-4 dark:border-gray-200">
@@ -248,7 +254,7 @@ export function ChatSessionsTab() {
               <div className="mb-3">
                 <div className="flex items-center gap-2 text-sm text-gray-900">
                   <MessageSquare className="h-4 w-4 text-gray-400" />
-                  <span className="font-medium">{session.title || 'Untitled'}</span>
+                  <span className="font-medium">{session.title || t('admin:analytics.chatSessions.untitled')}</span>
                 </div>
                 <div className="ml-6 text-xs text-gray-500">
                   {formatDateOnlyInTimeZone(session.createdAt)} • {formatTimeInTimeZone(session.createdAt)}
@@ -258,24 +264,24 @@ export function ChatSessionsTab() {
               {/* Row 3: Metrics */}
               <div className="flex items-center justify-between rounded-sm border border-gray-100 bg-gray-50/50 p-3">
                 <div>
-                  <div className="text-xs text-gray-500">Role</div>
+                  <div className="text-xs text-gray-500">{t('admin:analytics.chatSessions.columns.role')}</div>
                   <span className="inline-flex rounded-full border border-[#D2691E] bg-[#D2691E]/10 px-2 py-0.5 text-xs font-medium text-[#D2691E]">
-                    {session.userRole}
+                    {t(`common:roles.${session.userRole.toLowerCase()}`, session.userRole)}
                   </span>
                 </div>
 
                 <div className="text-center">
-                  <div className="text-xs text-gray-500">Messages</div>
+                  <div className="text-xs text-gray-500">{t('admin:analytics.chatSessions.columns.messages')}</div>
                   <span className="font-medium text-gray-900">{session._count.messages}</span>
                 </div>
 
                 <div className="text-center">
-                  <div className="text-xs text-gray-500">Model</div>
+                  <div className="text-xs text-gray-500">{t('admin:analytics.chatSessions.columns.model')}</div>
                   <span className="text-sm font-medium text-gray-900">{session.modelProvider || '-'}</span>
                 </div>
 
                 <div className="text-right">
-                  <div className="text-xs text-gray-500">Tokens</div>
+                  <div className="text-xs text-gray-500">{t('admin:analytics.chatSessions.columns.tokens')}</div>
                   <div className="font-medium text-gray-900">{formatTokens(session.totalTokens)}</div>
                 </div>
               </div>
@@ -300,11 +306,16 @@ function getModelBadgeClass(modelProvider: string | null): string {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation('admin');
+
   const colors = {
     ACTIVE: 'bg-blue-100 text-blue-800 border-blue-300',
     COMPLETED: 'bg-green-100 text-green-800 border-green-300',
     ERROR: 'bg-red-100 text-red-800 border-red-300',
   };
+
+  // ACTIVE -> filters.statusActive, COMPLETED -> filters.statusCompleted, ...
+  const labelKey = `analytics.chatSessions.filters.status${status.charAt(0)}${status.slice(1).toLowerCase()}`;
 
   return (
     <span
@@ -312,7 +323,7 @@ function StatusBadge({ status }: { status: string }) {
         colors[status as keyof typeof colors] || 'bg-gray-100 text-gray-800 border-gray-300'
       }`}
     >
-      {status}
+      {t(labelKey, status)}
     </span>
   );
 }

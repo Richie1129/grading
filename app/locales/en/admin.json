@@ -1,0 +1,160 @@
+{
+  "hub": {
+    "title": "Admin Center",
+    "welcome": "Welcome back, {{name}}",
+    "sectionTitle": "Administrative Functions",
+    "sectionSubtitle": "Select a section to manage",
+    "features": {
+      "users": {
+        "title": "User Management",
+        "description": "Manage users, roles, and permissions"
+      },
+      "analytics": {
+        "title": "Analytics Dashboard",
+        "description": "Monitor agent chats and grading sessions"
+      },
+      "queues": {
+        "title": "Queue Status",
+        "description": "View grading queue and system status"
+      }
+    }
+  },
+  "errors": {
+    "forbiddenTitle": "Forbidden",
+    "forbidden": "You do not have permission to access the admin area",
+    "genericTitle": "Error",
+    "loadFailed": "Something went wrong loading the admin page. Please try again later.",
+    "backHome": "Back to home"
+  },
+  "analytics": {
+    "eyebrow": "Admin Insights",
+    "title": "Analytics Dashboard",
+    "subtitle": "Monitor agent sessions and grading activities",
+    "tabs": {
+      "grading": "Grading Sessions",
+      "chat": "Chat Sessions"
+    },
+    "overview": {
+      "chatSessions": {
+        "title": "Chat Sessions",
+        "description": "Total agent conversations"
+      },
+      "gradingSessions": {
+        "title": "Grading Sessions",
+        "description": "Completed AI gradings"
+      },
+      "tokensUsed": {
+        "title": "Tokens Used",
+        "description": "Total API consumption"
+      }
+    },
+    "chatSessions": {
+      "filters": {
+        "allRoles": "All Roles",
+        "allStatus": "All Status",
+        "statusActive": "Active",
+        "statusCompleted": "Completed",
+        "statusError": "Error"
+      },
+      "showing": "Showing <1>{{count}}</1> sessions",
+      "columns": {
+        "session": "Session",
+        "user": "User",
+        "role": "Role",
+        "messages": "Messages",
+        "model": "Model",
+        "tokens": "Tokens",
+        "duration": "Duration",
+        "status": "Status"
+      },
+      "loading": "Loading sessions...",
+      "empty": "No sessions found",
+      "untitled": "Untitled"
+    },
+    "gradingSessions": {
+      "filters": {
+        "all": "All",
+        "requiresReview": "Requires Review",
+        "noReviewNeeded": "No Review Needed"
+      },
+      "showing": "Showing <1>{{count}}</1> sessions",
+      "columns": {
+        "student": "Student",
+        "file": "File",
+        "assignment": "Assignment",
+        "rubric": "Rubric",
+        "score": "Score",
+        "confidence": "Confidence",
+        "gradingTokens": "Grading Tokens",
+        "sparringTokens": "Sparring Tokens",
+        "geminiConverge": "Gemini Converge",
+        "review": "Review"
+      },
+      "loading": "Loading grading sessions...",
+      "empty": "No grading sessions found",
+      "calls": "{{count}} calls",
+      "tokensCount": "{{count}} tokens",
+      "needsReview": "Review",
+      "ok": "OK"
+    }
+  },
+  "users": {
+    "title": "User Management",
+    "subtitle": "Manage all system users and roles",
+    "stats": {
+      "total": "Total Users",
+      "students": "Students",
+      "teachers": "Teachers",
+      "admins": "Admins"
+    },
+    "refreshing": "Refreshing users...",
+    "sort": {
+      "placeholder": "Sort by",
+      "orderPlaceholder": "Order",
+      "newestFirst": "Newest first",
+      "oldestFirst": "Oldest first"
+    },
+    "columns": {
+      "user": "User",
+      "name": "Name",
+      "email": "Email",
+      "role": "Role",
+      "registered": "Registered",
+      "ai": "AI",
+      "actions": "Actions"
+    },
+    "registeredAt": "Registered: {{date}}",
+    "aiAccess": "AI Access",
+    "alwaysEnabled": "Always enabled",
+    "always": "Always",
+    "saveRole": "Save Role",
+    "deleteUser": "Delete user",
+    "currentUser": "Current user",
+    "you": "You",
+    "dialog": {
+      "title": "Confirm Deletion",
+      "description": "Are you sure you want to delete this user? This action cannot be undone and will remove all associated data.",
+      "confirm": "Delete User"
+    },
+    "toasts": {
+      "roleUpdated": "Role updated to {{role}}",
+      "aiEnabled": "AI access enabled",
+      "aiDisabled": "AI access disabled",
+      "userDeleted": "User deleted successfully",
+      "updateFailed": "Update failed"
+    },
+    "actionErrors": {
+      "userIdRequired": "User ID is required",
+      "invalidAiValue": "Invalid aiEnabled value",
+      "userNotFound": "User not found",
+      "adminAiAlwaysEnabled": "AI access for admin users is always enabled",
+      "toggleAiFailed": "Failed to update AI access",
+      "invalidRole": "Invalid role",
+      "cannotChangeOwnRole": "Cannot change your own role",
+      "updateRoleFailed": "Failed to update role",
+      "cannotDeleteSelf": "Cannot delete your own account",
+      "deleteFailed": "Failed to delete user",
+      "invalidAction": "Invalid action"
+    }
+  }
+}

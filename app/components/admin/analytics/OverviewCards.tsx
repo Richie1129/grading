@@ -5,6 +5,7 @@
  */
 
 import { TrendingUp, FileText, Zap } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface OverviewData {
   totalChatSessions: number;
@@ -13,24 +14,26 @@ interface OverviewData {
 }
 
 export function OverviewCards({ data }: { data: OverviewData }) {
+  const { t } = useTranslation('admin');
+
   const cards = [
     {
-      title: 'Chat Sessions',
+      title: t('analytics.overview.chatSessions.title'),
       value: data.totalChatSessions.toLocaleString(),
       icon: TrendingUp,
-      description: 'Total agent conversations',
+      description: t('analytics.overview.chatSessions.description'),
     },
     {
-      title: 'Grading Sessions',
+      title: t('analytics.overview.gradingSessions.title'),
       value: data.totalGradingSessions.toLocaleString(),
       icon: FileText,
-      description: 'Completed AI gradings',
+      description: t('analytics.overview.gradingSessions.description'),
     },
     {
-      title: 'Tokens Used',
+      title: t('analytics.overview.tokensUsed.title'),
       value: formatTokens(data.totalTokensUsed),
       icon: Zap,
-      description: 'Total API consumption',
+      description: t('analytics.overview.tokensUsed.description'),
     },
   ];
 

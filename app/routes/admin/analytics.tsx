@@ -9,6 +9,7 @@ import type { LoaderFunctionArgs } from 'react-router';
 import { getUserId } from '@/services/auth.server';
 import { db } from '@/lib/db.server';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { OverviewCards } from '@/components/admin/analytics/OverviewCards';
 import { ErrorPage } from '@/components/errors/ErrorPage';
 import { ChatSessionsTab } from '@/components/admin/analytics/ChatSessionsTab';
@@ -52,6 +53,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export default function AdminAnalytics() {
   const { user, overview } = useLoaderData<typeof loader>();
+  const { t } = useTranslation('admin');
   const [activeTab, setActiveTab] = useState<'chats' | 'gradings'>('gradings');
 
   return (
@@ -62,14 +64,12 @@ export default function AdminAnalytics() {
           <div className="flex items-center justify-between">
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#D2691E] dark:text-[#E87D3E]">
-                Admin Insights
+                {t('analytics.eyebrow')}
               </p>
               <h1 className="font-serif text-3xl font-light tracking-tight text-[#2B2B2B] dark:text-gray-100">
-                Analytics Dashboard
+                {t('analytics.title')}
               </h1>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                Monitor agent sessions and grading activities
-              </p>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{t('analytics.subtitle')}</p>
             </div>
             <div className="text-right">
               <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{user.name}</p>
@@ -98,7 +98,7 @@ export default function AdminAnalytics() {
                   }
                 `}
               >
-                Grading Sessions
+                {t('analytics.tabs.grading')}
               </button>
               <button
                 onClick={() => setActiveTab('chats')}
@@ -111,7 +111,7 @@ export default function AdminAnalytics() {
                   }
                 `}
               >
-                Chat Sessions
+                {t('analytics.tabs.chat')}
               </button>
             </div>
           </div>

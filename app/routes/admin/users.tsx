@@ -57,6 +57,10 @@ interface LoaderData {
   sortOrder: SortOrder;
 }
 
+/**
+ * The action returns translation keys rather than rendered text so the toast can
+ * be shown in whichever language the client is currently using.
+ */
 type ActionData =
   | {
       success: true;
@@ -64,13 +68,14 @@ type ActionData =
       userId: string;
       role?: UserRole;
       aiEnabled?: boolean;
-      message: string;
+      messageKey: string;
+      messageParams?: Record<string, string>;
     }
   | {
       success: false;
       intent: 'update-role' | 'toggle-ai' | 'delete' | 'unknown';
       userId?: string;
-      error: string;
+      errorKey: string;
     };
 
 function parseSortField(value: string | null): SortField {
@@ -146,7 +151,7 @@ export async function action({ request }: Route.ActionArgs) {
       {
         success: false,
         intent: 'unknown',
-        error: 'User ID is required',
+        errorKey: 'users.actionErrors.userIdRequired',
       },
       { status: 400 }
     );
@@ -161,7 +166,7 @@ export async function action({ request }: Route.ActionArgs) {
           success: false,
           intent: 'toggle-ai',
           userId,
-          error: 'Invalid aiEnabled value',
+          errorKey: 'users.actionErrors.invalidAiValue',
         },
         { status: 400 }
       );
@@ -179,7 +184,7 @@ export async function action({ request }: Route.ActionArgs) {
             success: false,
             intent: 'toggle-ai',
             userId,
-            error: 'User not found',
+            errorKey: 'users.actionErrors.userNotFound',
           },
           { status: 404 }
         );
@@ -191,7 +196,7 @@ export async function action({ request }: Route.ActionArgs) {
             success: false,
             intent: 'toggle-ai',
             userId,
-            error: 'AI access for admin users is always enabled',
+            errorKey: 'users.actionErrors.adminAiAlwaysEnabled',
           },
           { status: 400 }
         );
@@ -209,7 +214,7 @@ export async function action({ request }: Route.ActionArgs) {
         intent: 'toggle-ai',
         userId,
         aiEnabled,
-        message: aiEnabled ? 'AI 功能已啟用' : 'AI 功能已停用',
+        messageKey: aiEnabled ? 'users.toasts.aiEnabled' : 'users.toasts.aiDisabled',
       });
     } catch (error) {
       logger.error({ error, userId, adminId: admin.id }, 'Failed to toggle AI access');
@@ -218,7 +223,7 @@ export async function action({ request }: Route.ActionArgs) {
           success: false,
           intent: 'toggle-ai',
           userId,
-          error: 'Failed to update AI access',
+          errorKey: 'users.actionErrors.toggleAiFailed',
         },
         { status: 500 }
       );
@@ -234,7 +239,7 @@ export async function action({ request }: Route.ActionArgs) {
           success: false,
           intent: 'update-role',
           userId,
-          error: 'Invalid role',
+          errorKey: 'users.actionErrors.invalidRole',
         },
         { status: 400 }
       );
@@ -246,7 +251,7 @@ export async function action({ request }: Route.ActionArgs) {
           success: false,
           intent: 'update-role',
           userId,
-          error: 'Cannot change your own role',
+          errorKey: 'users.actionErrors.cannotChangeOwnRole',
         },
         { status: 403 }
       );
@@ -260,7 +265,8 @@ export async function action({ request }: Route.ActionArgs) {
         intent: 'update-role',
         userId,
         role,
-        message: `Role updated to ${role}`,
+        messageKey: 'users.toasts.roleUpdated',
+        messageParams: { role },
       });
     } catch (error) {
       logger.error({ error, userId, role, adminId: admin.id }, 'Failed to update user role');
@@ -269,7 +275,7 @@ export async function action({ request }: Route.ActionArgs) {
           success: false,
           intent: 'update-role',
           userId,
-          error: 'Failed to update role',
+          errorKey: 'users.actionErrors.updateRoleFailed',
         },
         { status: 500 }
       );
@@ -283,7 +289,7 @@ export async function action({ request }: Route.ActionArgs) {
           success: false,
           intent: 'delete',
           userId,
-          error: 'Cannot delete your own account',
+          errorKey: 'users.actionErrors.cannotDeleteSelf',
         },
         { status: 403 }
       );
@@ -301,7 +307,7 @@ export async function action({ request }: Route.ActionArgs) {
             success: false,
             intent: 'delete',
             userId,
-            error: 'User not found',
+            errorKey: 'users.actionErrors.userNotFound',
           },
           { status: 404 }
         );
@@ -313,7 +319,7 @@ export async function action({ request }: Route.ActionArgs) {
         success: true,
         intent: 'delete',
         userId,
-        message: 'User deleted successfully',
+        messageKey: 'users.toasts.userDeleted',
       });
     } catch (error) {
       logger.error({ error, userId, adminId: admin.id }, 'Failed to delete user');
@@ -322,7 +328,7 @@ export async function action({ request }: Route.ActionArgs) {
           success: false,
           intent: 'delete',
           userId,
-          error: 'Failed to delete user',
+          errorKey: 'users.actionErrors.deleteFailed',
         },
         { status: 500 }
       );
@@ -333,14 +339,14 @@ export async function action({ request }: Route.ActionArgs) {
     {
       success: false,
       intent: 'unknown',
-      error: 'Invalid action',
+      errorKey: 'users.actionErrors.invalidAction',
     },
     { status: 400 }
   );
 }
 
 export default function AdminUsersPage() {
-  const { t } = useTranslation('common');
+  const { t } = useTranslation(['admin', 'common']);
   const { users, stats, currentUserId, sortBy, sortOrder } = useLoaderData<typeof loader>();
 
   const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
@@ -363,7 +369,12 @@ export default function AdminUsersPage() {
     if (!mutationFetcher.data || mutationFetcher.state !== 'idle') return;
 
     if (mutationFetcher.data.success) {
-      toast.success(mutationFetcher.data.message);
+      const { messageKey, messageParams } = mutationFetcher.data;
+      // The role arrives as the raw enum value, so translate it before interpolating.
+      const params = messageParams?.role
+        ? { ...messageParams, role: t(`common:roles.${messageParams.role.toLowerCase()}`, messageParams.role) }
+        : messageParams;
+      toast.success(t(`admin:${messageKey}`, params));
 
       if (mutationFetcher.data.intent === 'update-role') {
         setEditingRoleUserId(null);
@@ -374,7 +385,7 @@ export default function AdminUsersPage() {
         setDeleteUserId(null);
       }
     } else {
-      toast.error(mutationFetcher.data.error || t('adminUsers.toasts.updateFailed'));
+      toast.error(t(`admin:${mutationFetcher.data.errorKey}`, t('admin:users.toasts.updateFailed')));
     }
 
     if (mutationFetcher.data.intent === 'toggle-ai' && mutationFetcher.data.userId) {
@@ -463,53 +474,63 @@ export default function AdminUsersPage() {
       <header className="border-b-2 border-[#2B2B2B] dark:border-gray-200">
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <h1 className="font-serif text-3xl font-light tracking-tight text-[#2B2B2B] dark:text-gray-100 sm:text-4xl">
-            User Management
+            {t('admin:users.title')}
           </h1>
-          <p className="mt-3 text-gray-600 dark:text-gray-400">Manage all system users and roles</p>
+          <p className="mt-3 text-gray-600 dark:text-gray-400">{t('admin:users.subtitle')}</p>
         </div>
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="mb-16 grid grid-cols-2 gap-6 sm:gap-8 md:grid-cols-4">
           <div className="border-2 border-[#2B2B2B] p-6 dark:border-gray-200">
-            <p className="text-xs uppercase tracking-wider text-gray-600 dark:text-gray-400">Total Users</p>
+            <p className="text-xs uppercase tracking-wider text-gray-600 dark:text-gray-400">
+              {t('admin:users.stats.total')}
+            </p>
             <p className="mt-3 font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">{stats.total}</p>
           </div>
           <div className="border-2 border-[#2B2B2B] p-6 transition-colors hover:border-[#D2691E] dark:border-gray-200 dark:hover:border-[#E87D3E]">
-            <p className="text-xs uppercase tracking-wider text-gray-600 dark:text-gray-400">Students</p>
+            <p className="text-xs uppercase tracking-wider text-gray-600 dark:text-gray-400">
+              {t('admin:users.stats.students')}
+            </p>
             <p className="mt-3 font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">{stats.students}</p>
           </div>
           <div className="border-2 border-[#2B2B2B] p-6 transition-colors hover:border-[#D2691E] dark:border-gray-200 dark:hover:border-[#E87D3E]">
-            <p className="text-xs uppercase tracking-wider text-gray-600 dark:text-gray-400">Teachers</p>
+            <p className="text-xs uppercase tracking-wider text-gray-600 dark:text-gray-400">
+              {t('admin:users.stats.teachers')}
+            </p>
             <p className="mt-3 font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">{stats.teachers}</p>
           </div>
           <div className="border-2 border-[#2B2B2B] p-6 transition-colors hover:border-[#D2691E] dark:border-gray-200 dark:hover:border-[#E87D3E]">
-            <p className="text-xs uppercase tracking-wider text-gray-600 dark:text-gray-400">Admins</p>
+            <p className="text-xs uppercase tracking-wider text-gray-600 dark:text-gray-400">
+              {t('admin:users.stats.admins')}
+            </p>
             <p className="mt-3 font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">{stats.admins}</p>
           </div>
         </div>
 
-        {isSorting && <div className="mb-6 text-sm text-gray-500 dark:text-gray-400">Refreshing users...</div>}
+        {isSorting && (
+          <div className="mb-6 text-sm text-gray-500 dark:text-gray-400">{t('admin:users.refreshing')}</div>
+        )}
 
         <div className="mb-6 grid grid-cols-2 gap-3 md:hidden">
           <Select value={sortBy} onValueChange={(value) => updateSort(value as SortField, sortOrder)}>
             <SelectTrigger className="border-2 border-[#2B2B2B]">
-              <SelectValue placeholder="Sort by" />
+              <SelectValue placeholder={t('admin:users.sort.placeholder')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="createdAt">Registered</SelectItem>
-              <SelectItem value="name">Name</SelectItem>
-              <SelectItem value="role">Role</SelectItem>
+              <SelectItem value="createdAt">{t('admin:users.columns.registered')}</SelectItem>
+              <SelectItem value="name">{t('admin:users.columns.name')}</SelectItem>
+              <SelectItem value="role">{t('admin:users.columns.role')}</SelectItem>
             </SelectContent>
           </Select>
 
           <Select value={sortOrder} onValueChange={(value) => updateSort(sortBy, value as SortOrder)}>
             <SelectTrigger className="border-2 border-[#2B2B2B]">
-              <SelectValue placeholder="Order" />
+              <SelectValue placeholder={t('admin:users.sort.orderPlaceholder')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="desc">Newest first</SelectItem>
-              <SelectItem value="asc">Oldest first</SelectItem>
+              <SelectItem value="desc">{t('admin:users.sort.newestFirst')}</SelectItem>
+              <SelectItem value="asc">{t('admin:users.sort.oldestFirst')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -533,7 +554,7 @@ export default function AdminUsersPage() {
                     </p>
                     <p className="mt-0.5 truncate text-sm text-gray-600 dark:text-gray-400">{user.email}</p>
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-500">
-                      Registered: {formatDate(user.createdAt)}
+                      {t('admin:users.registeredAt', { date: formatDate(user.createdAt) })}
                     </p>
                   </div>
                 </div>
@@ -541,7 +562,7 @@ export default function AdminUsersPage() {
                 <div className="mt-4 space-y-3 border-t border-[#2B2B2B] pt-3 dark:border-gray-200">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
-                      Role
+                      {t('admin:users.columns.role')}
                     </span>
                     {editingRoleUserId === user.id ? (
                       <Select
@@ -552,9 +573,9 @@ export default function AdminUsersPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="STUDENT">Student</SelectItem>
-                          <SelectItem value="TEACHER">Teacher</SelectItem>
-                          <SelectItem value="ADMIN">Admin</SelectItem>
+                          <SelectItem value="STUDENT">{t('common:roles.student')}</SelectItem>
+                          <SelectItem value="TEACHER">{t('common:roles.teacher')}</SelectItem>
+                          <SelectItem value="ADMIN">{t('common:roles.admin')}</SelectItem>
                         </SelectContent>
                       </Select>
                     ) : (
@@ -571,17 +592,17 @@ export default function AdminUsersPage() {
                           setSelectedRole(user.role);
                         }}
                       >
-                        {user.role}
+                        {t(`common:roles.${user.role.toLowerCase()}`, user.role)}
                       </button>
                     )}
                   </div>
 
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
-                      AI Access
+                      {t('admin:users.aiAccess')}
                     </span>
                     {user.role === 'ADMIN' ? (
-                      <span className="text-sm text-gray-500 dark:text-gray-500">Always enabled</span>
+                      <span className="text-sm text-gray-500 dark:text-gray-500">{t('admin:users.alwaysEnabled')}</span>
                     ) : (
                       <Switch
                         checked={user.aiEnabled}
@@ -600,7 +621,7 @@ export default function AdminUsersPage() {
                         onClick={() => handleRoleUpdate(user.id, selectedRole || user.role)}
                         className="min-h-[44px] flex-1 border-2 border-[#2B2B2B] px-4 text-sm font-medium text-[#2B2B2B] hover:border-[#D2691E] hover:text-[#D2691E] disabled:opacity-50 dark:border-gray-200 dark:text-gray-200 dark:hover:border-[#E87D3E] dark:hover:text-[#E87D3E]"
                       >
-                        Save Role
+                        {t('admin:users.saveRole')}
                       </button>
                       <button
                         type="button"
@@ -610,7 +631,7 @@ export default function AdminUsersPage() {
                         }}
                         className="min-h-[44px] flex-1 border-2 border-gray-400 px-4 text-sm font-medium text-gray-600 hover:border-[#2B2B2B] hover:text-[#2B2B2B] dark:border-gray-500 dark:text-gray-300 dark:hover:border-gray-200 dark:hover:text-gray-100"
                       >
-                        Cancel
+                        {t('common:cancel')}
                       </button>
                     </div>
                   ) : (
@@ -624,7 +645,7 @@ export default function AdminUsersPage() {
                           : 'border-[#D2691E] text-[#D2691E] hover:bg-[#D2691E]/10 dark:border-[#E87D3E] dark:text-[#E87D3E] dark:hover:bg-[#E87D3E]/10'
                       }`}
                     >
-                      {user.id === currentUserId ? 'Current user' : 'Delete user'}
+                      {user.id === currentUserId ? t('admin:users.currentUser') : t('admin:users.deleteUser')}
                     </button>
                   )}
                 </div>
@@ -638,34 +659,34 @@ export default function AdminUsersPage() {
             <thead>
               <tr className="border-b-2 border-[#2B2B2B] dark:border-gray-200">
                 <th className="px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
-                  User
+                  {t('admin:users.columns.user')}
                 </th>
                 <th
                   className="cursor-pointer px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 transition-colors hover:text-[#D2691E] dark:text-gray-400 dark:hover:text-[#E87D3E]"
                   onClick={() => handleSort('name')}
                 >
-                  Name <SortIndicator field="name" />
+                  {t('admin:users.columns.name')} <SortIndicator field="name" />
                 </th>
                 <th className="hidden px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 sm:table-cell">
-                  Email
+                  {t('admin:users.columns.email')}
                 </th>
                 <th
                   className="cursor-pointer px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 transition-colors hover:text-[#D2691E] dark:text-gray-400 dark:hover:text-[#E87D3E]"
                   onClick={() => handleSort('role')}
                 >
-                  Role <SortIndicator field="role" />
+                  {t('admin:users.columns.role')} <SortIndicator field="role" />
                 </th>
                 <th
                   className="hidden cursor-pointer px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider text-gray-600 transition-colors hover:text-[#D2691E] dark:text-gray-400 dark:hover:text-[#E87D3E] md:table-cell"
                   onClick={() => handleSort('createdAt')}
                 >
-                  Registered <SortIndicator field="createdAt" />
+                  {t('admin:users.columns.registered')} <SortIndicator field="createdAt" />
                 </th>
                 <th className="px-4 py-4 text-center text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
-                  AI
+                  {t('admin:users.columns.ai')}
                 </th>
                 <th className="px-4 py-4 text-right text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
-                  Actions
+                  {t('admin:users.columns.actions')}
                 </th>
               </tr>
             </thead>
@@ -704,9 +725,9 @@ export default function AdminUsersPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="STUDENT">Student</SelectItem>
-                            <SelectItem value="TEACHER">Teacher</SelectItem>
-                            <SelectItem value="ADMIN">Admin</SelectItem>
+                            <SelectItem value="STUDENT">{t('common:roles.student')}</SelectItem>
+                            <SelectItem value="TEACHER">{t('common:roles.teacher')}</SelectItem>
+                            <SelectItem value="ADMIN">{t('common:roles.admin')}</SelectItem>
                           </SelectContent>
                         </Select>
                       ) : (
@@ -723,7 +744,7 @@ export default function AdminUsersPage() {
                             setSelectedRole(user.role);
                           }}
                         >
-                          {user.role}
+                          {t(`common:roles.${user.role.toLowerCase()}`, user.role)}
                         </button>
                       )}
                     </td>
@@ -734,7 +755,7 @@ export default function AdminUsersPage() {
                     </td>
                     <td className="px-4 py-5 text-center">
                       {user.role === 'ADMIN' ? (
-                        <span className="text-xs text-gray-400 dark:text-gray-500">Always</span>
+                        <span className="text-xs text-gray-400 dark:text-gray-500">{t('admin:users.always')}</span>
                       ) : (
                         <Switch
                           checked={user.aiEnabled}
@@ -754,7 +775,7 @@ export default function AdminUsersPage() {
                               onClick={() => handleRoleUpdate(user.id, selectedRole || user.role)}
                               className="text-sm font-medium text-[#2B2B2B] underline-offset-4 hover:text-[#D2691E] hover:underline disabled:opacity-50 dark:text-gray-200 dark:hover:text-[#E87D3E]"
                             >
-                              Save
+                              {t('common:save')}
                             </button>
                             <button
                               type="button"
@@ -764,7 +785,7 @@ export default function AdminUsersPage() {
                               }}
                               className="text-sm font-medium text-gray-600 underline-offset-4 hover:text-[#2B2B2B] hover:underline dark:text-gray-400 dark:hover:text-gray-200"
                             >
-                              Cancel
+                              {t('common:cancel')}
                             </button>
                           </>
                         ) : (
@@ -778,7 +799,7 @@ export default function AdminUsersPage() {
                                 : 'text-[#D2691E] hover:underline dark:text-[#E87D3E]'
                             }`}
                           >
-                            {user.id === currentUserId ? 'You' : 'Delete'}
+                            {user.id === currentUserId ? t('admin:users.you') : t('common:delete')}
                           </button>
                         )}
                       </div>
@@ -795,11 +816,10 @@ export default function AdminUsersPage() {
         <DialogContent className="border-2 border-[#2B2B2B] dark:border-gray-200">
           <DialogHeader>
             <DialogTitle className="font-serif text-xl font-light text-[#2B2B2B] dark:text-gray-100">
-              Confirm Deletion
+              {t('admin:users.dialog.title')}
             </DialogTitle>
             <DialogDescription className="text-gray-600 dark:text-gray-400">
-              Are you sure you want to delete this user? This action cannot be undone and will remove all associated
-              data.
+              {t('admin:users.dialog.description')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-3">
@@ -808,7 +828,7 @@ export default function AdminUsersPage() {
               onClick={() => setDeleteUserId(null)}
               className="border-2 border-[#2B2B2B] px-6 py-2 text-sm font-medium text-[#2B2B2B] transition-colors hover:bg-[#2B2B2B] hover:text-white dark:border-gray-200 dark:text-gray-200 dark:hover:bg-gray-200 dark:hover:text-gray-900"
             >
-              Cancel
+              {t('common:cancel')}
             </button>
             <button
               type="button"
@@ -820,7 +840,7 @@ export default function AdminUsersPage() {
               }}
               className="border-2 border-[#D2691E] bg-[#D2691E] px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-[#D2691E]/90 disabled:opacity-50 dark:border-[#E87D3E] dark:bg-[#E87D3E]"
             >
-              Delete User
+              {t('admin:users.dialog.confirm')}
             </button>
           </DialogFooter>
         </DialogContent>

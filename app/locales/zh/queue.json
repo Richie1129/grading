@@ -6,6 +6,11 @@
   "systemError": "系統錯誤",
   "errorMessage": "請查看伺服器日誌以獲取更多詳細資訊。應用程式可能仍在初始化中。",
   "loading": "載入佇列狀態中...",
+  "errors": {
+    "fetchStatusFailed": "取得佇列狀態失敗",
+    "loadPreviewFailed": "載入清理預覽失敗",
+    "cleanupFailed": "清理佇列作業失敗"
+  },
   "statistics": {
     "title": "佇列統計",
     "subtitle": "當前作業分佈",
@@ -61,6 +66,7 @@
       "noJobs": "沒有作業需要清理",
       "activeWarning": "⚠️ 警告：{{count}} 個作業正在處理中",
       "byUser": "依用戶分組",
+      "jobsCount": "{{count}} 個作業",
       "jobDetails": "作業詳情",
       "user": "用戶",
       "course": "課程",

@@ -99,6 +99,8 @@
   "items": "項目",
   "expand": "展開",
   "collapse": "摺疊",
+  "show": "顯示",
+  "hide": "隱藏",
   "expandAll": "展開全部",
   "collapseAll": "摺疊全部",
   "notFound": {

@@ -5,6 +5,11 @@
   "systemError": "System Error",
   "errorMessage": "Check server logs for more details. The application may still be initializing.",
   "loading": "Loading queue status...",
+  "errors": {
+    "fetchStatusFailed": "Failed to fetch queue status",
+    "loadPreviewFailed": "Failed to load cleanup preview",
+    "cleanupFailed": "Failed to cleanup jobs"
+  },
   "statistics": {
     "title": "Queue Statistics",
     "subtitle": "Current job distribution",
@@ -60,6 +65,7 @@
       "noJobs": "No jobs to clean",
       "activeWarning": "⚠️ Warning: {{count}} jobs are currently being processed",
       "byUser": "Jobs by User",
+      "jobsCount": "{{count}} jobs",
       "jobDetails": "Job Details",
       "user": "User",
       "course": "Course",

@@ -7,6 +7,8 @@ import { Trash2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatDateTimeInTimeZone, formatTimeInTimeZone } from '@/lib/date';
 import { ErrorPage } from '@/components/errors/ErrorPage';
+import type { JobDetail } from '@/services/queue-jobs.server';
+import type { CleanupPreview } from '@/services/queue-cleanup.server';
 
 /**
  * Admin Queue Monitoring Dashboard
@@ -64,6 +66,21 @@ interface CleanupResult {
   timestamp: string;
 }
 
+/**
+ * These endpoints are consumed with fetch().json(), so the Date fields declared on
+ * the server-side types have already been serialised to ISO strings by the time
+ * they reach this component.
+ */
+type SerializedJobDetail = Omit<JobDetail, 'addedAt' | 'processedAt'> & {
+  addedAt: string;
+  processedAt?: string;
+};
+
+type SerializedCleanupPreview = Omit<CleanupPreview, 'activeJobs' | 'recentJobs'> & {
+  activeJobs: SerializedJobDetail[];
+  recentJobs: SerializedJobDetail[];
+};
+
 export default function QueuesPage() {
   const { t } = useTranslation(['queue', 'common']);
   const [status, setStatus] = useState<QueueStatus | null>(null);
@@ -72,9 +89,9 @@ export default function QueuesPage() {
   const [showCleanupDialog, setShowCleanupDialog] = useState(false);
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
-  const [cleanupPreview, setCleanupPreview] = useState<any | null>(null);
+  const [cleanupPreview, setCleanupPreview] = useState<SerializedCleanupPreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
-  const [jobDetails, setJobDetails] = useState<any[]>([]);
+  const [jobDetails, setJobDetails] = useState<SerializedJobDetail[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [showJobDetails, setShowJobDetails] = useState(false);
 
@@ -87,7 +104,7 @@ export default function QueuesPage() {
     try {
       const res = await fetch('/api/admin/queue-status');
       const response = await res.json();
-      
+
       // API returns { success: true, data: {...} }
       if (response.success && response.data) {
         const data = response.data;
@@ -107,16 +124,16 @@ export default function QueuesPage() {
           timestamp: data.timestamp || new Date().toISOString(),
         });
         setError(null);
-        
+
         // Auto-fetch job details if there are active or waiting jobs
         if (data.status.active > 0 || data.status.waiting > 0) {
           fetchJobDetails();
         }
       } else {
-        setError(response.error || 'Failed to fetch queue status');
+        setError(response.error || t('queue:errors.fetchStatusFailed'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch queue status');
+      setError(err instanceof Error ? err.message : t('queue:errors.fetchStatusFailed'));
     } finally {
       setLoading(false);
     }
@@ -127,7 +144,7 @@ export default function QueuesPage() {
       setLoadingJobs(true);
       const res = await fetch('/api/admin/queue-jobs');
       const data = await res.json();
-      
+
       if (data.success) {
         setJobDetails(data.jobs || []);
       }
@@ -142,18 +159,18 @@ export default function QueuesPage() {
   async function handleOpenCleanupDialog() {
     setLoadingPreview(true);
     setShowCleanupDialog(true);
-    
+
     try {
       const res = await fetch('/api/admin/cleanup-preview');
       const data = await res.json();
-      
+
       if (data.success) {
         setCleanupPreview(data.preview);
       } else {
-        setError('Failed to load cleanup preview');
+        setError(t('queue:errors.loadPreviewFailed'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load preview');
+      setError(err instanceof Error ? err.message : t('queue:errors.loadPreviewFailed'));
     } finally {
       setLoadingPreview(false);
     }
@@ -175,10 +192,10 @@ export default function QueuesPage() {
           window.location.reload();
         }, 3000);
       } else {
-        setError(data.message || 'Failed to cleanup jobs');
+        setError(data.message || t('queue:errors.cleanupFailed'));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to cleanup jobs');
+      setError(err instanceof Error ? err.message : t('queue:errors.cleanupFailed'));
     } finally {
       setCleanupLoading(false);
       setShowCleanupDialog(false);
@@ -195,9 +212,7 @@ export default function QueuesPage() {
               <div>
                 <h2 className="font-serif text-2xl font-light text-destructive mb-2">{t('queue:systemError')}</h2>
                 <p className="text-gray-600 dark:text-gray-400 mb-2">{error}</p>
-                <p className="text-sm text-gray-500 dark:text-gray-500">
-                  {t('queue:errorMessage')}
-                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-500">{t('queue:errorMessage')}</p>
               </div>
             </div>
           </div>
@@ -223,7 +238,12 @@ export default function QueuesPage() {
 
   const isLimited = status.rateLimiting.isRateLimited;
   const totalJobs = status.status.waiting + status.status.active + status.status.completed + status.status.failed;
-  const totalRemovable = status.status.waiting + status.status.failed + status.status.completed + status.status.delayed + status.status.active;
+  const totalRemovable =
+    status.status.waiting +
+    status.status.failed +
+    status.status.completed +
+    status.status.delayed +
+    status.status.active;
 
   return (
     <div className="min-h-screen">
@@ -235,9 +255,7 @@ export default function QueuesPage() {
               <h1 className="font-serif text-3xl font-light tracking-tight text-[#2B2B2B] dark:text-gray-100">
                 {t('queue:title')}
               </h1>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                {t('queue:subtitle')}
-              </p>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{t('queue:subtitle')}</p>
             </div>
             <div className="flex items-center gap-4">
               {/* Last Updated */}
@@ -247,7 +265,7 @@ export default function QueuesPage() {
                   {status?.timestamp ? formatTimeInTimeZone(status.timestamp) : '-'}
                 </p>
               </div>
-              
+
               {/* Manual Refresh Button */}
               <button
                 onClick={fetchStatus}
@@ -277,7 +295,9 @@ export default function QueuesPage() {
               </div>
               <div>
                 <p className="text-gray-600 dark:text-gray-400">{t('queue:cleanup.completedJobs')}</p>
-                <p className="font-mono font-bold text-[#2B2B2B] dark:text-gray-100">{cleanupResult.removed.completed}</p>
+                <p className="font-mono font-bold text-[#2B2B2B] dark:text-gray-100">
+                  {cleanupResult.removed.completed}
+                </p>
               </div>
               <div>
                 <p className="text-gray-600 dark:text-gray-400">{t('queue:cleanup.waitingJobs')}</p>
@@ -300,7 +320,9 @@ export default function QueuesPage() {
         <div className="mb-12">
           <div className="flex items-end justify-between mb-6">
             <div>
-              <h2 className="font-serif text-2xl font-light text-[#2B2B2B] dark:text-gray-100">{t('queue:statistics.title')}</h2>
+              <h2 className="font-serif text-2xl font-light text-[#2B2B2B] dark:text-gray-100">
+                {t('queue:statistics.title')}
+              </h2>
               <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{t('queue:statistics.subtitle')}</p>
             </div>
             <div className="text-right">
@@ -313,37 +335,57 @@ export default function QueuesPage() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {/* Waiting */}
             <div className="border-2 border-[#2B2B2B] dark:border-gray-200 p-5 transition-all hover:border-[#D2691E] dark:hover:border-[#E87D3E]">
-              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">{t('queue:statistics.waiting').toUpperCase()}</p>
-              <p className="font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">{status.status.waiting}</p>
+              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">
+                {t('queue:statistics.waiting').toUpperCase()}
+              </p>
+              <p className="font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">
+                {status.status.waiting}
+              </p>
             </div>
 
             {/* Active - Terracotta Accent */}
             <div className="border-2 border-[#D2691E] dark:border-[#E87D3E] bg-[#D2691E]/5 dark:bg-[#E87D3E]/5 p-5">
-              <p className="text-xs font-semibold text-[#D2691E] dark:text-[#E87D3E] mb-2">{t('queue:statistics.active').toUpperCase()}</p>
-              <p className="font-serif text-4xl font-light text-[#D2691E] dark:text-[#E87D3E]">{status.status.active}</p>
+              <p className="text-xs font-semibold text-[#D2691E] dark:text-[#E87D3E] mb-2">
+                {t('queue:statistics.active').toUpperCase()}
+              </p>
+              <p className="font-serif text-4xl font-light text-[#D2691E] dark:text-[#E87D3E]">
+                {status.status.active}
+              </p>
             </div>
 
             {/* Completed */}
             <div className="border-2 border-[#2B2B2B] dark:border-gray-200 p-5 transition-all hover:border-[#D2691E] dark:hover:border-[#E87D3E]">
-              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">{t('queue:statistics.completed').toUpperCase()}</p>
-              <p className="font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">{status.status.completed}</p>
+              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">
+                {t('queue:statistics.completed').toUpperCase()}
+              </p>
+              <p className="font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">
+                {status.status.completed}
+              </p>
             </div>
 
             {/* Failed */}
             <div className="border-2 border-[#2B2B2B] dark:border-gray-200 p-5 transition-all hover:border-[#D2691E] dark:hover:border-[#E87D3E]">
-              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">{t('queue:statistics.failed').toUpperCase()}</p>
+              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">
+                {t('queue:statistics.failed').toUpperCase()}
+              </p>
               <p className="font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">{status.status.failed}</p>
             </div>
 
             {/* Delayed */}
             <div className="border-2 border-[#2B2B2B] dark:border-gray-200 p-5 transition-all hover:border-[#D2691E] dark:hover:border-[#E87D3E]">
-              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">{t('queue:statistics.delayed').toUpperCase()}</p>
-              <p className="font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">{status.status.delayed}</p>
+              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">
+                {t('queue:statistics.delayed').toUpperCase()}
+              </p>
+              <p className="font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">
+                {status.status.delayed}
+              </p>
             </div>
 
             {/* Paused */}
             <div className="border-2 border-[#2B2B2B] dark:border-gray-200 p-5 transition-all hover:border-[#D2691E] dark:hover:border-[#E87D3E]">
-              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">{t('queue:statistics.paused').toUpperCase()}</p>
+              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">
+                {t('queue:statistics.paused').toUpperCase()}
+              </p>
               <p className="font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">{status.status.paused}</p>
             </div>
           </div>
@@ -358,7 +400,8 @@ export default function QueuesPage() {
                   {t('queue:jobDetails.title')}
                 </h2>
                 <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                  {t('queue:statistics.active')}: {status.status.active} · {t('queue:statistics.waiting')}: {status.status.waiting}
+                  {t('queue:statistics.active')}: {status.status.active} · {t('queue:statistics.waiting')}:{' '}
+                  {status.status.waiting}
                 </p>
               </div>
               <button
@@ -377,7 +420,10 @@ export default function QueuesPage() {
               <div className="space-y-6">
                 {loadingJobs ? (
                   <div className="text-center py-12">
-                    <RefreshCw className="h-6 w-6 text-[#D2691E] dark:text-[#E87D3E] animate-spin mx-auto mb-3" strokeWidth={1.5} />
+                    <RefreshCw
+                      className="h-6 w-6 text-[#D2691E] dark:text-[#E87D3E] animate-spin mx-auto mb-3"
+                      strokeWidth={1.5}
+                    />
                     <p className="text-sm text-gray-600 dark:text-gray-400">{t('queue:loading')}</p>
                   </div>
                 ) : jobDetails.length > 0 ? (
@@ -396,17 +442,23 @@ export default function QueuesPage() {
                             {job.user?.name || t('queue:cleanup.preview.noUserInfo')}
                           </p>
                         </div>
-                        <div className={`px-3 py-1 border ${
-                          job.status === 'active' 
-                            ? 'border-[#D2691E] dark:border-[#E87D3E] bg-[#D2691E]/5 dark:bg-[#E87D3E]/5' 
-                            : 'border-[#2B2B2B] dark:border-gray-200'
-                        }`}>
-                          <span className={`text-xs font-semibold ${
+                        <div
+                          className={`px-3 py-1 border ${
                             job.status === 'active'
-                              ? 'text-[#D2691E] dark:text-[#E87D3E]'
-                              : 'text-[#2B2B2B] dark:text-gray-100'
-                          }`}>
-                            {job.status === 'active' ? t('queue:jobDetails.active').toUpperCase() : t('queue:jobDetails.waiting').toUpperCase()}
+                              ? 'border-[#D2691E] dark:border-[#E87D3E] bg-[#D2691E]/5 dark:bg-[#E87D3E]/5'
+                              : 'border-[#2B2B2B] dark:border-gray-200'
+                          }`}
+                        >
+                          <span
+                            className={`text-xs font-semibold ${
+                              job.status === 'active'
+                                ? 'text-[#D2691E] dark:text-[#E87D3E]'
+                                : 'text-[#2B2B2B] dark:text-gray-100'
+                            }`}
+                          >
+                            {job.status === 'active'
+                              ? t('queue:jobDetails.active').toUpperCase()
+                              : t('queue:jobDetails.waiting').toUpperCase()}
                           </span>
                         </div>
                       </div>
@@ -430,9 +482,7 @@ export default function QueuesPage() {
                           </p>
                         </div>
                         <div>
-                          <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">
-                            {t('queue:jobDetails.file')}
-                          </p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400 mb-1">{t('queue:jobDetails.file')}</p>
                           <p className="text-sm text-gray-700 dark:text-gray-300 font-mono truncate">
                             {job.file?.fileName || '-'}
                           </p>
@@ -459,26 +509,39 @@ export default function QueuesPage() {
 
         {/* Rate Limiting Section */}
         <div className="mb-12">
-          <h2 className="font-serif text-2xl font-light text-[#2B2B2B] dark:text-gray-100 mb-6">{t('queue:rateLimiting.title')}</h2>
-          
-          <div className={`border-2 p-6 transition-all ${
-            isLimited 
-              ? 'border-destructive bg-destructive/5' 
-              : 'border-[#D2691E] dark:border-[#E87D3E] bg-[#D2691E]/5 dark:bg-[#E87D3E]/5'
-          }`}>
+          <h2 className="font-serif text-2xl font-light text-[#2B2B2B] dark:text-gray-100 mb-6">
+            {t('queue:rateLimiting.title')}
+          </h2>
+
+          <div
+            className={`border-2 p-6 transition-all ${
+              isLimited
+                ? 'border-destructive bg-destructive/5'
+                : 'border-[#D2691E] dark:border-[#E87D3E] bg-[#D2691E]/5 dark:bg-[#E87D3E]/5'
+            }`}
+          >
             <div className="flex items-center justify-between mb-6">
               <div>
                 <p className="text-sm text-gray-600 dark:text-gray-400">{t('queue:rateLimiting.configuration')}</p>
                 <p className="font-mono text-lg text-[#2B2B2B] dark:text-gray-100">
-                  {t('queue:rateLimiting.requestsPerSecond', { max: status.rateLimiting.config.max, duration: status.rateLimiting.config.duration / 1000 })}
+                  {t('queue:rateLimiting.requestsPerSecond', {
+                    max: status.rateLimiting.config.max,
+                    duration: status.rateLimiting.config.duration / 1000,
+                  })}
                 </p>
               </div>
               <div className="text-right">
                 <p className="text-sm text-gray-600 dark:text-gray-400">{t('queue:rateLimiting.status')}</p>
                 <div className="flex items-center gap-2 justify-end">
-                  <span className={`w-3 h-3 rounded-full animate-pulse ${isLimited ? 'bg-destructive' : 'bg-[#D2691E] dark:bg-[#E87D3E]'}`}></span>
-                  <p className={`font-serif text-lg ${isLimited ? 'text-destructive' : 'text-[#D2691E] dark:text-[#E87D3E]'}`}>
-                    {isLimited ? `${t('queue:rateLimiting.limited')} (${Math.ceil(status.rateLimiting.remainingTtl / 1000)}s)` : t('queue:rateLimiting.active')}
+                  <span
+                    className={`w-3 h-3 rounded-full animate-pulse ${isLimited ? 'bg-destructive' : 'bg-[#D2691E] dark:bg-[#E87D3E]'}`}
+                  ></span>
+                  <p
+                    className={`font-serif text-lg ${isLimited ? 'text-destructive' : 'text-[#D2691E] dark:text-[#E87D3E]'}`}
+                  >
+                    {isLimited
+                      ? `${t('queue:rateLimiting.limited')} (${Math.ceil(status.rateLimiting.remainingTtl / 1000)}s)`
+                      : t('queue:rateLimiting.active')}
                   </p>
                 </div>
               </div>
@@ -515,13 +578,16 @@ export default function QueuesPage() {
               <h2 className="font-serif text-2xl font-light text-[#2B2B2B] dark:text-gray-100 mb-2">
                 {t('queue:cleanup.title')}
               </h2>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 max-w-2xl" dangerouslySetInnerHTML={{ __html: t('queue:cleanup.description') }} />
+              <p
+                className="text-sm text-gray-600 dark:text-gray-400 mb-4 max-w-2xl"
+                dangerouslySetInnerHTML={{ __html: t('queue:cleanup.description') }}
+              />
               <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                 <span>{t('queue:cleanup.jobsToRemove')}</span>
                 <span className="font-mono font-bold text-[#D2691E] dark:text-[#E87D3E]">{totalRemovable}</span>
               </div>
             </div>
-            
+
             <button
               onClick={handleOpenCleanupDialog}
               disabled={totalRemovable === 0}
@@ -539,12 +605,18 @@ export default function QueuesPage() {
         <div className="mt-12 pt-8 border-t-2 border-[#2B2B2B] dark:border-gray-200">
           <div className="grid grid-cols-2 gap-8 text-center">
             <div>
-              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">{t('queue:systemInfo.queueEngine').toUpperCase()}</p>
+              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">
+                {t('queue:systemInfo.queueEngine').toUpperCase()}
+              </p>
               <p className="font-mono text-lg text-[#2B2B2B] dark:text-gray-100">{t('queue:systemInfo.bullmq')}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">{t('queue:systemInfo.queueState').toUpperCase()}</p>
-              <p className="font-mono text-lg text-[#2B2B2B] dark:text-gray-100">{status?.isProcessing ? t('queue:systemInfo.processing') : t('queue:systemInfo.idle')}</p>
+              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">
+                {t('queue:systemInfo.queueState').toUpperCase()}
+              </p>
+              <p className="font-mono text-lg text-[#2B2B2B] dark:text-gray-100">
+                {status?.isProcessing ? t('queue:systemInfo.processing') : t('queue:systemInfo.idle')}
+              </p>
             </div>
           </div>
         </div>
@@ -557,12 +629,18 @@ export default function QueuesPage() {
             {/* Dialog Header */}
             <div className="sticky top-0 bg-background border-b-2 border-[#2B2B2B] dark:border-gray-200 p-6">
               <div className="flex items-start gap-4">
-                <AlertTriangle className="h-6 w-6 text-[#D2691E] dark:text-[#E87D3E] flex-shrink-0 mt-1" strokeWidth={1.5} />
+                <AlertTriangle
+                  className="h-6 w-6 text-[#D2691E] dark:text-[#E87D3E] flex-shrink-0 mt-1"
+                  strokeWidth={1.5}
+                />
                 <div className="flex-1">
                   <h3 className="font-serif text-2xl font-light text-[#2B2B2B] dark:text-gray-100 mb-2">
                     {t('queue:cleanup.confirmTitle')}
                   </h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400" dangerouslySetInnerHTML={{ __html: t('queue:cleanup.confirmMessage', { count: totalRemovable }) }} />
+                  <p
+                    className="text-sm text-gray-600 dark:text-gray-400"
+                    dangerouslySetInnerHTML={{ __html: t('queue:cleanup.confirmMessage', { count: totalRemovable }) }}
+                  />
                 </div>
               </div>
             </div>
@@ -571,7 +649,10 @@ export default function QueuesPage() {
             <div className="p-6 space-y-6">
               {loadingPreview ? (
                 <div className="text-center py-8">
-                  <RefreshCw className="h-8 w-8 text-[#D2691E] dark:text-[#E87D3E] animate-spin mx-auto mb-3" strokeWidth={1.5} />
+                  <RefreshCw
+                    className="h-8 w-8 text-[#D2691E] dark:text-[#E87D3E] animate-spin mx-auto mb-3"
+                    strokeWidth={1.5}
+                  />
                   <p className="text-gray-600 dark:text-gray-400">{t('queue:cleanup.preview.loading')}</p>
                 </div>
               ) : cleanupPreview ? (
@@ -588,24 +669,44 @@ export default function QueuesPage() {
                   {/* Summary Stats */}
                   <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
                     <div className="border-2 border-[#2B2B2B] dark:border-gray-200 p-3 text-center">
-                      <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">{t('queue:statistics.waiting').toUpperCase()}</div>
-                      <div className="font-mono text-xl text-[#2B2B2B] dark:text-gray-100">{cleanupPreview.byStatus.waiting}</div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                        {t('queue:statistics.waiting').toUpperCase()}
+                      </div>
+                      <div className="font-mono text-xl text-[#2B2B2B] dark:text-gray-100">
+                        {cleanupPreview.byStatus.waiting}
+                      </div>
                     </div>
                     <div className="border-2 border-[#D2691E] dark:border-[#E87D3E] bg-[#D2691E]/5 dark:bg-[#E87D3E]/5 p-3 text-center">
-                      <div className="text-xs text-[#D2691E] dark:text-[#E87D3E] mb-1">{t('queue:statistics.active').toUpperCase()}</div>
-                      <div className="font-mono text-xl text-[#D2691E] dark:text-[#E87D3E]">{cleanupPreview.byStatus.active}</div>
+                      <div className="text-xs text-[#D2691E] dark:text-[#E87D3E] mb-1">
+                        {t('queue:statistics.active').toUpperCase()}
+                      </div>
+                      <div className="font-mono text-xl text-[#D2691E] dark:text-[#E87D3E]">
+                        {cleanupPreview.byStatus.active}
+                      </div>
                     </div>
                     <div className="border-2 border-[#2B2B2B] dark:border-gray-200 p-3 text-center">
-                      <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">{t('queue:statistics.completed').toUpperCase()}</div>
-                      <div className="font-mono text-xl text-[#2B2B2B] dark:text-gray-100">{cleanupPreview.byStatus.completed}</div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                        {t('queue:statistics.completed').toUpperCase()}
+                      </div>
+                      <div className="font-mono text-xl text-[#2B2B2B] dark:text-gray-100">
+                        {cleanupPreview.byStatus.completed}
+                      </div>
                     </div>
                     <div className="border-2 border-[#2B2B2B] dark:border-gray-200 p-3 text-center">
-                      <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">{t('queue:statistics.failed').toUpperCase()}</div>
-                      <div className="font-mono text-xl text-[#2B2B2B] dark:text-gray-100">{cleanupPreview.byStatus.failed}</div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                        {t('queue:statistics.failed').toUpperCase()}
+                      </div>
+                      <div className="font-mono text-xl text-[#2B2B2B] dark:text-gray-100">
+                        {cleanupPreview.byStatus.failed}
+                      </div>
                     </div>
                     <div className="border-2 border-[#2B2B2B] dark:border-gray-200 p-3 text-center">
-                      <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">{t('queue:statistics.delayed').toUpperCase()}</div>
-                      <div className="font-mono text-xl text-[#2B2B2B] dark:text-gray-100">{cleanupPreview.byStatus.delayed}</div>
+                      <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                        {t('queue:statistics.delayed').toUpperCase()}
+                      </div>
+                      <div className="font-mono text-xl text-[#2B2B2B] dark:text-gray-100">
+                        {cleanupPreview.byStatus.delayed}
+                      </div>
                     </div>
                   </div>
 
@@ -616,10 +717,15 @@ export default function QueuesPage() {
                         {t('queue:cleanup.preview.byUser')}
                       </h4>
                       <div className="space-y-2">
-                        {Object.entries(cleanupPreview.byUser).map(([userId, data]: [string, any]) => (
-                          <div key={userId} className="flex items-center justify-between py-2 border-b border-gray-200 dark:border-gray-700 last:border-0">
+                        {Object.entries(cleanupPreview.byUser).map(([userId, data]) => (
+                          <div
+                            key={userId}
+                            className="flex items-center justify-between py-2 border-b border-gray-200 dark:border-gray-700 last:border-0"
+                          >
                             <span className="text-sm text-gray-700 dark:text-gray-300">{data.name}</span>
-                            <span className="font-mono text-sm text-[#D2691E] dark:text-[#E87D3E]">{data.count} jobs</span>
+                            <span className="font-mono text-sm text-[#D2691E] dark:text-[#E87D3E]">
+                              {t('queue:cleanup.preview.jobsCount', { count: data.count })}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -633,28 +739,47 @@ export default function QueuesPage() {
                         {t('queue:cleanup.preview.jobDetails')} ({t('queue:statistics.active')})
                       </h4>
                       <div className="space-y-3 max-h-60 overflow-y-auto">
-                        {cleanupPreview.activeJobs.map((job: any) => (
-                          <div key={job.jobId} className="border-l-2 border-[#D2691E] dark:border-[#E87D3E] pl-3 space-y-1 text-sm">
+                        {cleanupPreview.activeJobs.map((job) => (
+                          <div
+                            key={job.jobId}
+                            className="border-l-2 border-[#D2691E] dark:border-[#E87D3E] pl-3 space-y-1 text-sm"
+                          >
                             <div className="flex items-start justify-between gap-2">
-                              <span className="text-gray-600 dark:text-gray-400">{t('queue:cleanup.preview.user')}:</span>
-                              <span className="font-medium text-[#2B2B2B] dark:text-gray-100">{job.user?.name || t('queue:cleanup.preview.noUserInfo')}</span>
+                              <span className="text-gray-600 dark:text-gray-400">
+                                {t('queue:cleanup.preview.user')}:
+                              </span>
+                              <span className="font-medium text-[#2B2B2B] dark:text-gray-100">
+                                {job.user?.name || t('queue:cleanup.preview.noUserInfo')}
+                              </span>
                             </div>
                             {job.assignment && (
                               <div className="flex items-start justify-between gap-2">
-                                <span className="text-gray-600 dark:text-gray-400">{t('queue:cleanup.preview.assignment')}:</span>
-                                <span className="text-[#2B2B2B] dark:text-gray-100 text-right">{job.assignment.name}</span>
+                                <span className="text-gray-600 dark:text-gray-400">
+                                  {t('queue:cleanup.preview.assignment')}:
+                                </span>
+                                <span className="text-[#2B2B2B] dark:text-gray-100 text-right">
+                                  {job.assignment.name}
+                                </span>
                               </div>
                             )}
                             {job.file && (
                               <div className="flex items-start justify-between gap-2">
-                                <span className="text-gray-600 dark:text-gray-400">{t('queue:cleanup.preview.file')}:</span>
-                                <span className="text-gray-700 dark:text-gray-300 text-right font-mono text-xs">{job.file.fileName}</span>
+                                <span className="text-gray-600 dark:text-gray-400">
+                                  {t('queue:cleanup.preview.file')}:
+                                </span>
+                                <span className="text-gray-700 dark:text-gray-300 text-right font-mono text-xs">
+                                  {job.file.fileName}
+                                </span>
                               </div>
                             )}
                             {job.addedAt && (
                               <div className="flex items-start justify-between gap-2">
-                                <span className="text-gray-600 dark:text-gray-400">{t('queue:cleanup.preview.time')}:</span>
-                                <span className="text-gray-700 dark:text-gray-300 text-xs">{formatDateTimeInTimeZone(job.addedAt)}</span>
+                                <span className="text-gray-600 dark:text-gray-400">
+                                  {t('queue:cleanup.preview.time')}:
+                                </span>
+                                <span className="text-gray-700 dark:text-gray-300 text-xs">
+                                  {formatDateTimeInTimeZone(job.addedAt)}
+                                </span>
                               </div>
                             )}
                           </div>

@@ -1,6 +1,6 @@
 /**
  * Admin Hub Page
- * 
+ *
  * Architectural sketch style central navigation for admin functions
  */
 
@@ -31,23 +31,24 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export default function AdminHub() {
   const { user } = useLoaderData<typeof loader>();
+  const { t } = useTranslation('admin');
 
   const adminFeatures = [
     {
-      title: 'User Management',
-      description: 'Manage users, roles, and permissions',
+      title: t('hub.features.users.title'),
+      description: t('hub.features.users.description'),
       href: '/admin/users',
       icon: Users,
     },
     {
-      title: 'Analytics Dashboard',
-      description: 'Monitor agent chats and grading sessions',
+      title: t('hub.features.analytics.title'),
+      description: t('hub.features.analytics.description'),
       href: '/admin/analytics',
       icon: BarChart3,
     },
     {
-      title: 'Queue Status',
-      description: 'View grading queue and system status',
+      title: t('hub.features.queues.title'),
+      description: t('hub.features.queues.description'),
       href: '/admin/queues',
       icon: Activity,
     },
@@ -60,11 +61,9 @@ export default function AdminHub() {
         <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
           <div>
             <h1 className="font-serif text-3xl font-light tracking-tight text-[#2B2B2B] dark:text-gray-100">
-              Admin Center
+              {t('hub.title')}
             </h1>
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-              Welcome back, {user.name}
-            </p>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">{t('hub.welcome', { name: user.name })}</p>
           </div>
         </div>
       </header>
@@ -73,29 +72,21 @@ export default function AdminHub() {
       <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="mb-10">
-          <h2 className="font-serif text-xl font-light text-[#2B2B2B] dark:text-gray-100">
-            Administrative Functions
-          </h2>
-          <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            Select a section to manage
-          </p>
+          <h2 className="font-serif text-xl font-light text-[#2B2B2B] dark:text-gray-100">{t('hub.sectionTitle')}</h2>
+          <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">{t('hub.sectionSubtitle')}</p>
         </div>
 
         {/* Feature Grid - Hand-drawn Cards */}
         <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
           {adminFeatures.map((feature) => (
-            <Link
-              key={feature.href}
-              to={feature.href}
-              className="group relative block"
-            >
+            <Link key={feature.href} to={feature.href} className="group relative block">
               {/* Sketch-style Card Container */}
               <div className="relative border-2 border-[#2B2B2B] p-8 transition-all hover:border-[#D2691E] dark:border-gray-200 dark:hover:border-[#E87D3E]">
                 {/* Icon - Minimal sketch style */}
                 <div className="mb-6 inline-flex border-2 border-[#2B2B2B] p-3 transition-colors group-hover:border-[#D2691E] group-hover:bg-[#D2691E]/5 dark:border-gray-200 dark:group-hover:border-[#E87D3E] dark:group-hover:bg-[#E87D3E]/10">
-                  <feature.icon 
-                    className="h-7 w-7 text-[#2B2B2B] transition-colors group-hover:text-[#D2691E] dark:text-gray-200 dark:group-hover:text-[#E87D3E]" 
-                    strokeWidth={1.5} 
+                  <feature.icon
+                    className="h-7 w-7 text-[#2B2B2B] transition-colors group-hover:text-[#D2691E] dark:text-gray-200 dark:group-hover:text-[#E87D3E]"
+                    strokeWidth={1.5}
                   />
                 </div>
 
@@ -105,9 +96,7 @@ export default function AdminHub() {
                 </h3>
 
                 {/* Description */}
-                <p className="text-sm leading-relaxed text-gray-600 dark:text-gray-400">
-                  {feature.description}
-                </p>
+                <p className="text-sm leading-relaxed text-gray-600 dark:text-gray-400">{feature.description}</p>
 
                 {/* Accent line on hover - Terracotta */}
                 <div className="absolute bottom-0 left-0 h-1 w-full origin-left scale-x-0 bg-[#D2691E] transition-transform duration-300 group-hover:scale-x-100 dark:bg-[#E87D3E]" />
@@ -155,26 +144,22 @@ export default function AdminHub() {
 // Error Boundary for handling loader errors
 export function ErrorBoundary() {
   const error = useRouteError();
-  const { t } = useTranslation(['common']);
+  const { t } = useTranslation('admin');
 
   if (isRouteErrorResponse(error) && (error.status === 401 || error.status === 403)) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center px-4">
         <div className="space-y-6 text-center">
           <div className="space-y-3">
-            <h1 className="font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">
-              {error.status}
-            </h1>
-            <p className="text-gray-600 dark:text-gray-400">
-              您沒有權限訪問管理員頁面
-            </p>
+            <h1 className="font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">{error.status}</h1>
+            <p className="text-gray-600 dark:text-gray-400">{t('errors.forbidden')}</p>
           </div>
           <Link
             to="/"
             className="inline-flex items-center gap-2 border border-[#2B2B2B] px-6 py-3 text-sm transition-colors hover:bg-[#2B2B2B] hover:text-white dark:border-gray-200 dark:hover:bg-gray-200 dark:hover:text-[#2B2B2B]"
           >
             <Home className="h-4 w-4" />
-            返回首頁
+            {t('errors.backHome')}
           </Link>
         </div>
       </div>
@@ -187,18 +172,16 @@ export function ErrorBoundary() {
       <div className="space-y-6 text-center">
         <div className="space-y-3">
           <h1 className="font-serif text-4xl font-light text-[#2B2B2B] dark:text-gray-100">
-            錯誤
+            {t('errors.genericTitle')}
           </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            載入管理頁面時發生錯誤，請稍後再試
-          </p>
+          <p className="text-gray-600 dark:text-gray-400">{t('errors.loadFailed')}</p>
         </div>
         <Link
           to="/"
           className="inline-flex items-center gap-2 border border-[#2B2B2B] px-6 py-3 text-sm transition-colors hover:bg-[#2B2B2B] hover:text-white dark:border-gray-200 dark:hover:bg-gray-200 dark:hover:text-[#2B2B2B]"
         >
           <Home className="h-4 w-4" />
-          返回首頁
+          {t('errors.backHome')}
         </Link>
       </div>
     </div>

@@ -99,6 +99,8 @@
   "items": "items",
   "expand": "Expand",
   "collapse": "Collapse",
+  "show": "Show",
+  "hide": "Hide",
   "expandAll": "Expand All",
   "collapseAll": "Collapse All",
   "notFound": {

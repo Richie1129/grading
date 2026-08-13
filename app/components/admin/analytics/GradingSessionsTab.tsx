@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { FileText, Award, Clock, AlertCircle } from 'lucide-react';
+import { Trans, useTranslation } from 'react-i18next';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { formatDateOnlyInTimeZone, formatTimeInTimeZone } from '@/lib/date';
 
@@ -39,6 +40,7 @@ interface GradingSession {
 }
 
 export function GradingSessionsTab() {
+  const { t } = useTranslation('admin');
   const [sessions, setSessions] = useState<GradingSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ requiresReview: '' });
@@ -84,13 +86,17 @@ export function GradingSessionsTab() {
             onChange={(e) => setFilters({ ...filters, requiresReview: e.target.value })}
             className="min-h-[40px] rounded-sm border border-border bg-background px-3 py-2 text-sm text-foreground focus:border-[#D2691E] focus:outline-none focus:ring-2 focus:ring-[#D2691E]/20 dark:focus:border-[#E87D3E] dark:focus:ring-[#E87D3E]/20"
           >
-            <option value="">All</option>
-            <option value="true">Requires Review</option>
-            <option value="false">No Review Needed</option>
+            <option value="">{t('admin:analytics.gradingSessions.filters.all')}</option>
+            <option value="true">{t('admin:analytics.gradingSessions.filters.requiresReview')}</option>
+            <option value="false">{t('admin:analytics.gradingSessions.filters.noReviewNeeded')}</option>
           </select>
         </div>
         <div className="text-xs text-muted-foreground">
-          Showing <span className="font-semibold text-foreground">{sessions.length.toLocaleString()}</span> sessions
+          <Trans
+            i18nKey="admin:analytics.gradingSessions.showing"
+            values={{ count: sessions.length }}
+            components={{ 1: <span className="font-semibold text-foreground" /> }}
+          />
         </div>
       </div>
 
@@ -101,34 +107,34 @@ export function GradingSessionsTab() {
             <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur-sm">
               <tr className="border-b-2 border-[#2B2B2B]">
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Student
+                  {t('admin:analytics.gradingSessions.columns.student')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  File
+                  {t('admin:analytics.gradingSessions.columns.file')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Assignment
+                  {t('admin:analytics.gradingSessions.columns.assignment')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Rubric
+                  {t('admin:analytics.gradingSessions.columns.rubric')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Score
+                  {t('admin:analytics.gradingSessions.columns.score')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Confidence
+                  {t('admin:analytics.gradingSessions.columns.confidence')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Grading Tokens
+                  {t('admin:analytics.gradingSessions.columns.gradingTokens')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Sparring Tokens
+                  {t('admin:analytics.gradingSessions.columns.sparringTokens')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Gemini Converge
+                  {t('admin:analytics.gradingSessions.columns.geminiConverge')}
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Review
+                  {t('admin:analytics.gradingSessions.columns.review')}
                 </th>
               </tr>
             </thead>
@@ -136,13 +142,13 @@ export function GradingSessionsTab() {
               {loading ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">
-                    Loading grading sessions...
+                    {t('admin:analytics.gradingSessions.loading')}
                   </td>
                 </tr>
               ) : sessions.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">
-                    No grading sessions found
+                    {t('admin:analytics.gradingSessions.empty')}
                   </td>
                 </tr>
               ) : (
@@ -216,18 +222,22 @@ export function GradingSessionsTab() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="text-sm text-foreground">
-                        <div>{session.convergenceCalls ?? 0} calls</div>
-                        <div className="text-xs text-muted-foreground">{(session.convergenceTokens ?? 0).toLocaleString()} tokens</div>
+                        <div>
+                          {t('admin:analytics.gradingSessions.calls', { count: session.convergenceCalls ?? 0 })}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {t('admin:analytics.gradingSessions.tokensCount', { count: session.convergenceTokens ?? 0 })}
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3">
                       {session.requiresReview ? (
                         <div className="flex items-center gap-1 text-xs text-amber-700">
                           <AlertCircle className="h-4 w-4" />
-                          Review
+                          {t('admin:analytics.gradingSessions.needsReview')}
                         </div>
                       ) : (
-                        <span className="text-xs text-green-600">✓ OK</span>
+                        <span className="text-xs text-green-600">✓ {t('admin:analytics.gradingSessions.ok')}</span>
                       )}
                     </td>
                   </tr>
@@ -241,9 +251,9 @@ export function GradingSessionsTab() {
       {/* Mobile Card View */}
       <div className="space-y-4 sm:hidden">
         {loading ? (
-          <div className="py-8 text-center text-gray-500">Loading grading sessions...</div>
+          <div className="py-8 text-center text-gray-500">{t('admin:analytics.gradingSessions.loading')}</div>
         ) : sessions.length === 0 ? (
-          <div className="py-8 text-center text-gray-500">No grading sessions found</div>
+          <div className="py-8 text-center text-gray-500">{t('admin:analytics.gradingSessions.empty')}</div>
         ) : (
           sessions.map((session) => (
             <div key={session.id} className="rounded-sm border-2 border-[#2B2B2B] bg-card p-4 dark:border-gray-200">
@@ -264,11 +274,11 @@ export function GradingSessionsTab() {
                   {session.requiresReview ? (
                     <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">
                       <AlertCircle className="h-3 w-3" />
-                      Review
+                      {t('admin:analytics.gradingSessions.needsReview')}
                     </span>
                   ) : (
                     <span className="inline-flex items-center rounded bg-green-50 px-2 py-1 text-xs font-medium text-green-700">
-                      ✓ OK
+                      ✓ {t('admin:analytics.gradingSessions.ok')}
                     </span>
                   )}
                 </div>
@@ -292,11 +302,11 @@ export function GradingSessionsTab() {
               {/* Row 3: Assignment Details */}
               <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
                 <div className="rounded bg-gray-50 p-2">
-                  <div className="text-gray-500">Assignment</div>
+                  <div className="text-gray-500">{t('admin:analytics.gradingSessions.columns.assignment')}</div>
                   <div className="font-medium text-gray-900 truncate">{session.assignmentArea?.name || '-'}</div>
                 </div>
                 <div className="rounded bg-gray-50 p-2">
-                  <div className="text-gray-500">Rubric</div>
+                  <div className="text-gray-500">{t('admin:analytics.gradingSessions.columns.rubric')}</div>
                   <div className="font-medium text-gray-900 truncate">{session.rubric.name}</div>
                 </div>
               </div>
@@ -304,7 +314,7 @@ export function GradingSessionsTab() {
               {/* Row 4: Metrics */}
               <div className="flex items-center justify-between rounded-sm border border-gray-100 bg-gray-50/50 p-3">
                 <div>
-                  <div className="text-xs text-gray-500">Score</div>
+                  <div className="text-xs text-gray-500">{t('admin:analytics.gradingSessions.columns.score')}</div>
                   <div className="flex items-center gap-1">
                     <Award className="h-4 w-4 text-[#D2691E]" />
                     <span className="font-bold text-gray-900">
@@ -314,7 +324,9 @@ export function GradingSessionsTab() {
                 </div>
 
                 <div className="text-center">
-                  <div className="mb-1 text-xs text-gray-500">Confidence</div>
+                  <div className="mb-1 text-xs text-gray-500">
+                    {t('admin:analytics.gradingSessions.columns.confidence')}
+                  </div>
                   {session.confidenceScore !== null ? (
                     <ConfidenceBadge score={session.confidenceScore} />
                   ) : (
@@ -323,13 +335,17 @@ export function GradingSessionsTab() {
                 </div>
 
                 <div className="text-right">
-                  <div className="text-xs text-gray-500">Tokens</div>
+                  <div className="text-xs text-gray-500">
+                    {t('admin:analytics.gradingSessions.columns.gradingTokens')}
+                  </div>
                   <div className="text-sm text-gray-900">
                     <div className="flex items-center justify-end gap-1">
                       <Clock className="h-3 w-3 text-gray-400" />
                       G: {session.gradingTokens?.toLocaleString() || '-'}
                     </div>
-                    <div className="text-xs text-gray-500">S: {session.sparringTokens?.toLocaleString() || '-'} / C: {session.convergenceCalls ?? 0}</div>
+                    <div className="text-xs text-gray-500">
+                      S: {session.sparringTokens?.toLocaleString() || '-'} / C: {session.convergenceCalls ?? 0}
+                    </div>
                   </div>
                 </div>
               </div>

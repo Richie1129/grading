@@ -15,6 +15,7 @@ import enSettings from '../locales/en/settings.json';
 import enAnalytics from '../locales/en/analytics.json';
 import enAgent from '../locales/en/agent.json';
 import enQueue from '../locales/en/queue.json';
+import enAdmin from '../locales/en/admin.json';
 
 import zhCommon from '../locales/zh/common.json';
 import zhAuth from '../locales/zh/auth.json';
@@ -32,6 +33,7 @@ import zhSettings from '../locales/zh/settings.json';
 import zhAnalytics from '../locales/zh/analytics.json';
 import zhAgent from '../locales/zh/agent.json';
 import zhQueue from '../locales/zh/queue.json';
+import zhAdmin from '../locales/zh/admin.json';
 
 // Create supported languages array
 export const supportedLanguages = ['en', 'zh'];
@@ -55,6 +57,7 @@ export type Resource = {
   analytics: typeof enAnalytics;
   agent: typeof enAgent;
   queue: typeof enQueue;
+  admin: typeof enAdmin;
 };
 
 // Export resources in the format remix-i18next expects
@@ -76,6 +79,7 @@ export const resources: Record<SupportedLanguage, Resource> = {
     analytics: enAnalytics,
     agent: enAgent,
     queue: enQueue,
+    admin: enAdmin,
   },
   zh: {
     common: zhCommon,
@@ -94,5 +98,6 @@ export const resources: Record<SupportedLanguage, Resource> = {
     analytics: zhAnalytics,
     agent: zhAgent,
     queue: zhQueue,
+    admin: zhAdmin,
   },
 };

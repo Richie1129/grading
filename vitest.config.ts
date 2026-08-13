@@ -24,7 +24,7 @@ export default defineConfig({
     setupFiles: ['./test/setup.ts', './test/polyfills.ts'],
     env: {
       // Use dev database for testing with proper cleanup
-      DATABASE_URL: process.env.TEST_DATABASE_URL || 'postgresql://grading_admin:password@localhost:5432/grading_db',
+      DATABASE_URL: process.env.TEST_DATABASE_URL || 'postgresql://grading_admin:password@localhost:15432/grading_db',
       NODE_ENV: 'test',
       REDIS_HOST: process.env.REDIS_HOST || 'localhost',
       REDIS_PORT: process.env.REDIS_PORT || '6379',

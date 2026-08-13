@@ -54,7 +54,7 @@ export function NavHeader({ title, onShare, className, tabs }: NavHeaderProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const isOnAgentPlayground = location.pathname.startsWith('/agent-playground');
-  
+
   // Theme and language store for mobile menu
   const { theme, setTheme, language, toggleLanguage } = useUiStore();
 
@@ -211,7 +211,7 @@ export function NavHeader({ title, onShare, className, tabs }: NavHeaderProps) {
                       src={user.picture}
                       alt={user.email}
                       className="w-6 h-6 lg:w-8 lg:h-8 2xl:w-10 2xl:h-10 rounded-full border-2 border-[#2B2B2B] dark:border-gray-200"
-                      referrerPolicy='no-referrer'
+                      referrerPolicy="no-referrer"
                     />
                   ) : (
                     <UserIcon className="w-4 h-4 lg:w-5 lg:h-5 2xl:w-6 2xl:h-6" />
@@ -241,28 +241,26 @@ export function NavHeader({ title, onShare, className, tabs }: NavHeaderProps) {
                   <div className="text-center">
                     <p className="text-base font-medium leading-none">{user.email}</p>
                     <p className="text-sm text-muted-foreground mt-1.5">
-                      {user.role === 'TEACHER' ? safeT('teacher', 'Teacher') : safeT('student', 'Student')}
+                      {user.role === 'ADMIN'
+                        ? safeT('administrator', 'Administrator')
+                        : user.role === 'TEACHER'
+                          ? safeT('teacher', 'Teacher')
+                          : safeT('student', 'Student')}
                     </p>
                   </div>
-                  
+
                   {/* Primary CTA Button - Google style */}
-                  <Button 
-                    asChild 
-                    variant="outline" 
-                    className="w-full mt-2 rounded-full border-2 hover:bg-accent"
-                  >
-                    <Link to="/settings">
-                      {safeT('manageAccount', 'Manage Account')}
-                    </Link>
+                  <Button asChild variant="outline" className="w-full mt-2 rounded-full border-2 hover:bg-accent">
+                    <Link to="/settings">{safeT('manageAccount', 'Manage Account')}</Link>
                   </Button>
                 </div>
-                
+
                 {/* Secondary Actions - Google style cards */}
                 <div className="px-4 pb-4 grid grid-cols-2 gap-3">
                   {user.role === 'ADMIN' && (
-                    <Button 
-                      asChild 
-                      variant="secondary" 
+                    <Button
+                      asChild
+                      variant="secondary"
                       className="h-auto min-h-[4.75rem] py-3 px-4 flex flex-col items-center gap-2 rounded-xl"
                     >
                       <Link to="/admin">
@@ -271,9 +269,9 @@ export function NavHeader({ title, onShare, className, tabs }: NavHeaderProps) {
                       </Link>
                     </Button>
                   )}
-                  
-                  <Button 
-                    variant="secondary" 
+
+                  <Button
+                    variant="secondary"
                     className="h-auto min-h-[4.75rem] py-3 px-4 flex flex-col items-center gap-2 rounded-xl"
                     onClick={handleLogout}
                   >
@@ -290,7 +288,12 @@ export function NavHeader({ title, onShare, className, tabs }: NavHeaderProps) {
             {isTeacher && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="relative px-2" aria-label={safeT('notifications', 'Notifications')}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="relative px-2"
+                    aria-label={safeT('notifications', 'Notifications')}
+                  >
                     <Bell className="h-5 w-5" />
                     {unreadCount > 0 && (
                       <Badge
@@ -354,26 +357,24 @@ export function NavHeader({ title, onShare, className, tabs }: NavHeaderProps) {
                   <div className="text-center">
                     <p className="text-base font-medium leading-none">{user.email}</p>
                     <p className="text-sm text-muted-foreground mt-1.5">
-                      {user.role === 'TEACHER' ? safeT('teacher', 'Teacher') : safeT('student', 'Student')}
+                      {user.role === 'ADMIN'
+                        ? safeT('administrator', 'Administrator')
+                        : user.role === 'TEACHER'
+                          ? safeT('teacher', 'Teacher')
+                          : safeT('student', 'Student')}
                     </p>
                   </div>
-                  
+
                   {/* Primary CTA Button - Google style */}
-                  <Button 
-                    asChild 
-                    variant="outline" 
-                    className="w-full mt-2 rounded-full border-2 hover:bg-accent"
-                  >
-                    <Link to="/settings">
-                      {safeT('manageAccount', 'Manage Account')}
-                    </Link>
+                  <Button asChild variant="outline" className="w-full mt-2 rounded-full border-2 hover:bg-accent">
+                    <Link to="/settings">{safeT('manageAccount', 'Manage Account')}</Link>
                   </Button>
                 </div>
-                
+
                 {/* Quick Settings - Mobile Only */}
                 <div className="px-4 pb-3 grid grid-cols-2 gap-3">
-                  <Button 
-                    variant="secondary" 
+                  <Button
+                    variant="secondary"
                     className="h-auto min-h-[4.75rem] py-3 px-4 flex flex-col items-center gap-2 rounded-xl"
                     onClick={(e) => {
                       e.preventDefault();
@@ -386,9 +387,9 @@ export function NavHeader({ title, onShare, className, tabs }: NavHeaderProps) {
                     </div>
                     <span className="text-xs">{safeT('theme', 'Theme')}</span>
                   </Button>
-                  
-                  <Button 
-                    variant="secondary" 
+
+                  <Button
+                    variant="secondary"
                     className="h-auto min-h-[4.75rem] py-3 px-4 flex flex-col items-center gap-2 rounded-xl"
                     onClick={(e) => {
                       e.preventDefault();
@@ -399,13 +400,13 @@ export function NavHeader({ title, onShare, className, tabs }: NavHeaderProps) {
                     <span className="text-xs font-medium">{language === 'zh' ? '中文' : 'EN'}</span>
                   </Button>
                 </div>
-                
+
                 {/* Secondary Actions - Google style cards */}
                 <div className="px-4 pb-4 grid grid-cols-2 gap-3">
                   {user.role === 'ADMIN' && (
-                    <Button 
-                      asChild 
-                      variant="secondary" 
+                    <Button
+                      asChild
+                      variant="secondary"
                       className="h-auto min-h-[4.75rem] py-3 px-4 flex flex-col items-center gap-2 rounded-xl"
                     >
                       <Link to="/admin">
@@ -414,12 +415,12 @@ export function NavHeader({ title, onShare, className, tabs }: NavHeaderProps) {
                       </Link>
                     </Button>
                   )}
-                  
-                  <Button 
-                    variant="secondary" 
+
+                  <Button
+                    variant="secondary"
                     className={cn(
-                      "h-auto min-h-[4.75rem] py-3 px-4 flex flex-col items-center gap-2 rounded-xl",
-                      user.role === 'ADMIN' ? "" : "col-span-2"
+                      'h-auto min-h-[4.75rem] py-3 px-4 flex flex-col items-center gap-2 rounded-xl',
+                      user.role === 'ADMIN' ? '' : 'col-span-2'
                     )}
                     onClick={handleLogout}
                   >

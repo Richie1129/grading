@@ -30,6 +30,7 @@
   "system": "System",
   "teacher": "Teacher",
   "student": "Student",
+  "administrator": "Administrator",
   "version": "Version",
   "environment": "Environment",
   "branch": "Branch",

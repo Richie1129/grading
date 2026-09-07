@@ -159,3 +159,21 @@ cd ~/grading && PREV=$(grep '^IMAGE_TAG=' .env.backup | cut -d= -f2-) && sed -i 
 - 管理員：`npm run seed:admin` 建立 `stone881129@g.ncu.edu.tw`（腳本預設值，`FIRST_ADMIN_EMAIL` 留空）。
 - 首次上線時發現：`GEMINI_API_KEY` 為空會讓 app 在啟動階段卡住、不監聽 3000 也不崩潰（healthcheck 因此 unhealthy、
   verify 失敗）。暫以 `.env` 的佔位值 `GEMINI_API_KEY=placeholder-not-configured` 讓服務啟動；根因與修法見 `future-list.md` F002。
+
+### vLLM 評分路徑驗證（2026-09-07，commit e2cc7eb）
+
+- 端點 `https://vllm-193.hsueh.tw/v1`、模型 `/models/gemma-4-26B-A4B-it`：`/v1/models` 可達，
+  `/v1/chat/completions` 的 `response_format: json_schema` 與 `tools` 都能用（curl 實測）。
+- AI SDK 路徑（`gradeWithVllm`）：用真實的評分 prompt 與 `GradingResultSchema` 打 vLLM，34 秒回傳兩個 criteria 的評語、
+  總評與 2 題 sparring questions，schema 驗證通過。
+- Agent 路徑（`executeGradingAgent`，伺服器 `USE_AGENT_GRADING=true` 實際走的路徑）：模型選到 vllm，
+  think_aloud → calculate_confidence → generate_feedback 三次 tool call，75 到 85 秒，約 16k tokens，信心 0.86 到 0.98。
+- 三次實測發現 gemma 會自創 criteriaId、也會用自己的分數尺度（同一份 rubric 分別回 1/1、4/5、1/1，rubric 是 10 分），
+  rubric 優化步驟也曾把 maxScore 改成 1。已加 `agent-rubric.server.ts`：優化結果以原始 ID / 名稱 / 總分為準，
+  breakdown 依 ID → 名稱 → 順序對回 rubric 並等比例換算分數；第三次實測 breakdown 為 c1 10/10、c2 10/10，總分 20/20。
+- 伺服器：CI run 34099642515 全綠後，app 容器內 `GRADING_PROVIDER_ORDER=vllm,gemini,openai`、`USE_AGENT_GRADING=true`，
+  從容器內 `fetch https://vllm-193.hsueh.tw/v1/models` 回 200（277 ms），BullMQ worker 正常啟動。
+  磁碟使用由 12G 增為 19G（本專案映像與 volume），剩 18G。
+- 單元測試：`test/unit/vllm-provider.test.ts`、`ai-grader-sdk.test.ts`、`agent-rubric.test.ts` 共 31 個測試通過
+  （需本機 dev DB 與 redis；`vitest.config.ts` 已補 `@` 別名，之前所有單元測試的別名解析本來就是壞的）。
+  `test/unit/gemini-key-health.test.ts` 有 1 個既有失敗（health score 期望值），與本次無關。

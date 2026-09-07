@@ -354,6 +354,8 @@ function createGenerateFeedbackTool(isZh: boolean, localeText: AgentLocaleText) 
           criteriaId: c.criteriaId,
           name: c.name,
           score: c.score,
+          // 模型自己的分數尺度；agent-executor 會據此把分數換算成 rubric 的 maxScore
+          maxScore: c.maxScore,
           feedback: feedback || localeText.noSpecificFeedback,
         };
       });

@@ -39,7 +39,12 @@ import { getKeyHealthTracker, type ErrorType } from './gemini-key-health.server'
 import { checkVllmHealth, createVllmChatModel, getVllmConfig } from './vllm-provider.server';
 import { GEMINI_GRADING_MODEL } from './ai-sdk-provider.server';
 import { getGradingProviderOrder } from './ai-grader-sdk.server';
-import { mergeOptimizedCriteria } from './agent-rubric.server';
+import {
+  mergeOptimizedCriteria,
+  alignBreakdownToRubric,
+  remapRelatedRubricIds,
+  type ModelBreakdownItem,
+} from './agent-rubric.server';
 
 // ============================================================================
 // TYPES
@@ -808,17 +813,27 @@ export async function executeGradingAgent(params: AgentGradingParams): Promise<A
          ];
  
          // Map to AIGradingResult format to satisfy type requirements
-         const mappedData = {
-           breakdown: result.criteriaScores.map((s: any) => ({
+         // 把模型的 criteriaScores 對回 rubric（ID / 名稱 / 順序）並換算成 rubric 的 maxScore 尺度
+         const alignedDirect = alignBreakdownToRubric(
+           result.criteriaScores.map((s) => ({
              criteriaId: s.criteriaId,
              name: s.name,
              score: s.score,
+             maxScore: s.maxScore,
              feedback: s.analysis || s.justification || '',
            })),
+           effectiveCriteria,
+           localeText.noSpecificFeedback
+         );
+         if (alignedDirect.notes.length > 0) {
+           logger.info({ resultId: params.resultId, notes: alignedDirect.notes }, '[Agent] Direct grading breakdown aligned to rubric');
+         }
+         const mappedData = {
+           breakdown: alignedDirect.breakdown,
            overallFeedback: result.messageToStudent || result.overallObservation,
            summary: result.overallObservation,
-           // Include sparring questions for Productive Friction
-           sparringQuestions: result.sparringQuestions || [],
+           // Include sparring questions for Productive Friction（related_rubric_id 對回 rubric ID）
+           sparringQuestions: remapRelatedRubricIds(result.sparringQuestions || [], alignedDirect.idMap),
          };
  
          // Stream finish to Redis (Bridge format) with telemetry for thesis research
@@ -1202,6 +1217,7 @@ export async function executeGradingAgent(params: AgentGradingParams): Promise<A
               criteriaId: c.criteriaId,
               name: c.name,
               score: c.score,
+              maxScore: c.maxScore,
               feedback: c.analysis || c.justification || c.evidence || localeText.noSpecificFeedback,
             }));
             
@@ -1386,6 +1402,34 @@ export async function executeGradingAgent(params: AgentGradingParams): Promise<A
         'MODEL_RETURNED_INTERRUPTED_RESULT',
         'Model returned a 3-Step Process Interrupted fallback message'
       );
+    }
+
+    // 7.5 把模型的 breakdown 對回 rubric：系統提示沒有給模型 criteriaId，模型會自創 ID，
+    //     也可能用自己的 maxScore 尺度（gemma via vLLM 實測 rubric 10 分它回 4/5）；
+    //     分數依「模型 maxScore → rubric maxScore」等比例換算並夾在 [0, maxScore]，總分一併重算
+    if (finalResult) {
+      const rawBreakdown: ModelBreakdownItem[] =
+        Array.isArray(finalResult.breakdown) && finalResult.breakdown.length > 0
+          ? finalResult.breakdown
+          : (finalResult.criteriaScores ?? []).map((c: ModelBreakdownItem & { analysis?: string; justification?: string }) => ({
+              criteriaId: c.criteriaId,
+              name: c.name,
+              score: c.score,
+              maxScore: c.maxScore,
+              feedback: c.feedback || c.analysis || c.justification || '',
+            }));
+      const aligned = alignBreakdownToRubric(rawBreakdown, effectiveCriteria, localeText.noSpecificFeedback);
+      finalResult.breakdown = aligned.breakdown;
+      finalResult.totalScore = aligned.totalScore;
+      finalResult.maxScore = aligned.maxScore;
+      finalResult.percentage = aligned.percentage;
+      finalResult.summary = `${localeText.totalScorePrefix}: ${aligned.totalScore}/${aligned.maxScore} (${aligned.percentage.toFixed(1)}%)`;
+      if (Array.isArray(finalResult.sparringQuestions)) {
+        finalResult.sparringQuestions = remapRelatedRubricIds(finalResult.sparringQuestions, aligned.idMap);
+      }
+      if (aligned.notes.length > 0) {
+        logger.info({ resultId: params.resultId, notes: aligned.notes }, '[Agent] Breakdown aligned to rubric');
+      }
     }
 
     // 8. Build Response

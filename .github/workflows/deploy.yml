@@ -131,7 +131,13 @@ jobs:
               "${PDF_SOURCE}@${PDF_SOURCE_DIGEST}"
           fi
           ACTUAL=$(docker buildx imagetools inspect "${PDF_IMAGE}:master" --format '{{.Manifest.Digest}}')
-          CONFIG=$(docker buildx imagetools inspect "${PDF_IMAGE}:master" --raw | jq -r '.config.digest')
+          # ghcr 上是 OCI index（manifest list），config 在其 linux/amd64 子 manifest 裡；若直接是 manifest 則 .config 就有
+          RAW=$(docker buildx imagetools inspect "${PDF_IMAGE}:master" --raw)
+          CONFIG=$(echo "${RAW}" | jq -r '.config.digest // empty')
+          if [ -z "${CONFIG}" ]; then
+            CHILD=$(echo "${RAW}" | jq -r '.manifests[] | select(.platform.os=="linux" and .platform.architecture=="amd64") | .digest' | head -1)
+            CONFIG=$(docker buildx imagetools inspect "${PDF_IMAGE}@${CHILD}" --raw | jq -r '.config.digest')
+          fi
           echo "ghcr master: manifest=${ACTUAL} config=${CONFIG}"
           if [ "${ACTUAL}" != "${PDF_DIGEST}" ] || [ "${CONFIG}" != "${PDF_CONFIG_DIGEST}" ]; then
             echo "::error::ghcr 上 ${PDF_IMAGE}:master 的 manifest 或 config digest 與釘死值不符，compose 以 digest 拉取會失敗；請確認 PDF_DIGEST / PDF_CONFIG_DIGEST"

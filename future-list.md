@@ -65,3 +65,31 @@
 - **相關檔案**：`deploy/docker-compose.server.yml`、`.github/workflows/deploy.yml`、`app/services/pdf-parser.server.ts`
 
 ---
+
+### F002: `GEMINI_API_KEY` 為空時 app 啟動卡住而不是明確失敗
+
+- **類別**：Backend
+- **狀態**：`backlog`
+- **優先級**：P1
+- **建立日期**：2026-09-07
+- **提案來源**：首次部署到 192.168.30.111 時 verify job 失敗（`docs/DEPLOY.md` 第 8 節）
+- **為什麼現在不做**：
+  - 部署當下以 `.env` 佔位值繞過，服務可正常啟動；根因在程式碼，屬應用層修正，與部署流程分開處理
+  - 同時在評估是否把評分主流程改走 vLLM（若做，順手處理較省）
+- **觸發條件**：任何一次 `GEMINI_API_KEY` 被清空的部署；或要做評分供應商抽換時
+- **怎麼做**：
+  1. 現象：`react-router-serve` 匯入 server build 時，`StartupService.initialize()` 內 `import('../workers/grading.server')`
+     因 `GEMINI_API_KEY not configured` 拒絕，worker-init 有 catch，但緊接著出現 `Unhandled Rejection`（reason 為空物件），
+     之後 `app.listen` 從未執行；`StartupService.setupGracefulShutdown()` 註冊的 `unhandledRejection` handler 只記 log 不退出，
+     所以 process 活著但不監聽。同一映像給任一非空 key 就正常
+  2. 找出模組載入期就檢查 key 並拋錯的位置（`workers/grading.server.ts` → `bullmq-grading.server.ts` /
+     `gemini-*.server.ts` 的模組頂層），改為延遲到實際評分時才檢查，缺 key 時 worker 不啟動並記 warn
+  3. `unhandledRejection` handler 改為記完 log 後 `process.exit(1)`，讓容器 restart 而不是假活著；或至少在 `/health` 回 unhealthy
+  4. 加一個啟動測試：`GEMINI_API_KEY=` 下 `npm run start` 必須在 10 秒內監聽 3000
+- **估計工作量**：`S`
+- **依賴 / 前置條件**：無
+- **風險 / 副作用**：改 unhandledRejection 為退出後，其他未處理的拒絕也會讓容器重啟；上線前先看一輪 log
+- **替代方案**：`.env` 永遠放一把有效或佔位的 key（現況）
+- **相關檔案**：`app/services/startup.server.ts`、`app/services/worker-init.server.ts`、`app/workers/grading.server.ts`、`app/services/bullmq-grading.server.ts`
+
+---

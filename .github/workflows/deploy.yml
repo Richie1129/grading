@@ -289,10 +289,11 @@ jobs:
             done
             echo "✅ 映像版本正確"
 
-            # 經 nginx（127.0.0.1:8080）打主程式 /health（會實際查 DB 與 Redis）與 Socket.IO 握手
-            HEALTH=$(curl -fsS -m 20 http://127.0.0.1:8080/health)
-            echo "/health → ${HEALTH}"
-            echo "${HEALTH}" | grep -q '"status":"healthy"' || { echo "❌ /health 非 healthy"; exit 1; }
+            # 經 nginx（127.0.0.1:8080）打主程式 /health（會實際查 DB 與 Redis）與 Socket.IO 握手。
+            # /health 是 UI route，文件請求回的是內嵌 loader 資料的 HTML；不健康時 loader 回 500，curl -f 會失敗
+            HEALTH=$(curl -fsS -m 20 http://127.0.0.1:8080/health) || { echo "❌ /health 回非 2xx"; docker compose logs --tail=50 app; exit 1; }
+            echo "${HEALTH}" | grep -q "Service is healthy" || { echo "❌ /health 內容沒有 healthy 訊息"; exit 1; }
+            echo "/health → healthy"
             curl -fsS -m 20 "http://127.0.0.1:8080/socket.io/?EIO=4&transport=polling" > /dev/null \
               || { echo "❌ Socket.IO 握手失敗"; docker compose logs --tail=50 websocket nginx; exit 1; }
             docker compose exec -T pdf-api python -c "import urllib.request; print('pdf-api /health →', urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read().decode())"

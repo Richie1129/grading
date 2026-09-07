@@ -39,6 +39,7 @@ import { getKeyHealthTracker, type ErrorType } from './gemini-key-health.server'
 import { checkVllmHealth, createVllmChatModel, getVllmConfig } from './vllm-provider.server';
 import { GEMINI_GRADING_MODEL } from './ai-sdk-provider.server';
 import { getGradingProviderOrder } from './ai-grader-sdk.server';
+import { mergeOptimizedCriteria } from './agent-rubric.server';
 
 // ============================================================================
 // TYPES
@@ -197,12 +198,21 @@ Input: ${JSON.stringify(rawCriteria, null, 2)}
       },
     });
 
-    logger.info({
-      originalCount: rawCriteria.length,
-      optimizedCount: optimizedCriteria.length,
-    }, '[Agent] Rubric optimized');
-
-    return optimizedCriteria;
+    // 提示詞要求保留 ID / 名稱 / 總分，但 schema 無法強制（gemma via vLLM 實測會改寫），
+    // 這裡以原始值為準，只採用模型產生的說明與等級
+    const merged = mergeOptimizedCriteria(rawCriteria, optimizedCriteria);
+    logger.info(
+      {
+        originalCount: rawCriteria.length,
+        optimizedCount: optimizedCriteria.length,
+        usedOriginal: merged.usedOriginal,
+        violations: merged.violations,
+      },
+      merged.violations.length > 0
+        ? '[Agent] Rubric optimized (model changed immutable fields, restored from original)'
+        : '[Agent] Rubric optimized'
+    );
+    return merged.criteria;
   } catch (error) {
     logger.warn({ err: error }, '[Agent] Rubric optimization failed, using original');
     return rawCriteria;

@@ -24,7 +24,7 @@ import { redis } from '@/lib/redis';
 
 function createGeminiModel(apiKey: string) {
   const gemini = createGoogleGenerativeAI({ apiKey });
-  return gemini('gemini-3.1-flash-lite');
+  return gemini(GEMINI_GRADING_MODEL);
 }
 import type {
   AgentGradingParams,
@@ -36,6 +36,9 @@ import type {
 import { createAgentTools } from './agent-tools.server';
 import logger from '@/utils/logger';
 import { getKeyHealthTracker, type ErrorType } from './gemini-key-health.server';
+import { checkVllmHealth, createVllmChatModel, getVllmConfig } from './vllm-provider.server';
+import { GEMINI_GRADING_MODEL } from './ai-sdk-provider.server';
+import { getGradingProviderOrder } from './ai-grader-sdk.server';
 
 // ============================================================================
 // TYPES
@@ -634,26 +637,62 @@ export async function executeGradingAgent(params: AgentGradingParams): Promise<A
       hasAssignmentTitle: !!params.assignmentTitle,
     }, '[Agent] Starting autonomous grading (ToolLoopAgent)');
 
-    // 1. Setup Model (Google Generative AI)
+    // 1. Setup Model：依 GRADING_PROVIDER_ORDER（預設 vLLM → Gemini）。
+    //    vLLM 需設定且健康檢查通過；Gemini 沿用 KeyHealthTracker 的多把 key 輪替。
+    //    Agent 路徑需要 tool calling，目前不支援 OpenAI 備援（AI SDK 路徑才有）。
     let model: any;
-
-    // Flexible key detection (supports 1, 2, or 3 keys)
-    const availableKeyIds = ['1'];
-    if (process.env.GEMINI_API_KEY2) availableKeyIds.push('2');
-    if (process.env.GEMINI_API_KEY3) availableKeyIds.push('3');
-
-    selectedKeyId = await healthTracker.selectBestKey(availableKeyIds);
-    if (!selectedKeyId) throw new Error('All Gemini API keys are throttled');
-
-    const apiKey =
-      selectedKeyId === '1'
-        ? process.env.GEMINI_API_KEY
-        : selectedKeyId === '2'
-          ? process.env.GEMINI_API_KEY2
-          : process.env.GEMINI_API_KEY3;
-    if (!apiKey) throw new Error(`API key not found for keyId: ${selectedKeyId}`);
-
-    model = createGeminiModel(apiKey);
+    let agentProvider: 'vllm' | 'gemini' = 'gemini';
+    let agentModelName = GEMINI_GRADING_MODEL;
+    const modelErrors: string[] = [];
+    for (const candidate of getGradingProviderOrder()) {
+      if (candidate === 'vllm') {
+        const vllmConfig = getVllmConfig();
+        const health = await checkVllmHealth(vllmConfig);
+        if (!health.healthy) {
+          modelErrors.push(`vllm: ${health.error ?? 'unhealthy'}`);
+          continue;
+        }
+        model = createVllmChatModel(vllmConfig);
+        agentProvider = 'vllm';
+        agentModelName = vllmConfig.modelName;
+        break;
+      }
+      if (candidate === 'gemini') {
+        if (!process.env.GEMINI_API_KEY) {
+          modelErrors.push('gemini: GEMINI_API_KEY not configured');
+          continue;
+        }
+        // Flexible key detection (supports 1, 2, or 3 keys)
+        const availableKeyIds = ['1'];
+        if (process.env.GEMINI_API_KEY2) availableKeyIds.push('2');
+        if (process.env.GEMINI_API_KEY3) availableKeyIds.push('3');
+        selectedKeyId = await healthTracker.selectBestKey(availableKeyIds);
+        if (!selectedKeyId) {
+          modelErrors.push('gemini: All Gemini API keys are throttled');
+          continue;
+        }
+        const apiKey =
+          selectedKeyId === '1'
+            ? process.env.GEMINI_API_KEY
+            : selectedKeyId === '2'
+              ? process.env.GEMINI_API_KEY2
+              : process.env.GEMINI_API_KEY3;
+        if (!apiKey) {
+          modelErrors.push(`gemini: API key not found for keyId: ${selectedKeyId}`);
+          selectedKeyId = null;
+          continue;
+        }
+        model = createGeminiModel(apiKey);
+        agentProvider = 'gemini';
+        agentModelName = GEMINI_GRADING_MODEL;
+        break;
+      }
+      modelErrors.push(`${candidate}: not supported by agent grading`);
+    }
+    if (!model) {
+      throw new Error(`No grading model available for agent (${modelErrors.join('; ') || 'no provider configured'})`);
+    }
+    logger.info({ resultId: params.resultId, provider: agentProvider, model: agentModelName }, '[Agent] Model selected');
 
     // 2. Optimize Rubric
     let effectiveCriteria = params.criteria;
@@ -784,7 +823,7 @@ export async function executeGradingAgent(params: AgentGradingParams): Promise<A
                meta: {
                  executionTimeMs: directExecutionTimeMs,
                  totalTokens: usage?.totalTokens || 0,
-                  modelName: 'gemini-3.1-flash-lite',
+                  modelName: agentModelName,
                  sparringQuestionsCount: mappedData.sparringQuestions?.length || 0,
                  mode: 'direct',
                }
@@ -795,6 +834,8 @@ export async function executeGradingAgent(params: AgentGradingParams): Promise<A
          return {
            success: true,
            data: mappedData,
+           provider: agentProvider,
+           modelName: agentModelName,
            steps,
            confidenceScore: 1.0, // Direct mode assumes high confidence or N/A
            requiresReview: false,
@@ -1339,7 +1380,9 @@ export async function executeGradingAgent(params: AgentGradingParams): Promise<A
 
     // 8. Build Response
     const executionTimeMs = Date.now() - startTime;
-    await healthTracker.recordSuccess(selectedKeyId, executionTimeMs);
+    if (selectedKeyId) {
+      await healthTracker.recordSuccess(selectedKeyId, executionTimeMs);
+    }
 
     // Ensure finalResult has breakdown
     if (finalResult && finalResult.criteriaScores && !finalResult.breakdown) {
@@ -1388,7 +1431,7 @@ export async function executeGradingAgent(params: AgentGradingParams): Promise<A
           meta: {
             executionTimeMs,
             totalTokens,
-            modelName: 'gemini-3.1-flash-lite',
+            modelName: agentModelName,
             sparringQuestionsCount: finalResult?.sparringQuestions?.length || 0,
           }
         })
@@ -1411,6 +1454,8 @@ export async function executeGradingAgent(params: AgentGradingParams): Promise<A
       interruptionReasonCode,
       interruptionReason,
       toolCallStats: getToolCallStats(),
+      provider: agentProvider,
+      modelName: agentModelName,
     };
   } catch (error) {
     logger.error({ err: error }, '[Agent] Grading failed');

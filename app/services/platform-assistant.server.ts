@@ -255,12 +255,19 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { tmpdir } from 'os';
 
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) {
-  throw new Error('GEMINI_API_KEY not configured');
+// Gemini provider 延遲到第一次使用才建立：這個模組會被打包進 server bundle，
+// 若在模組載入期就因缺 GEMINI_API_KEY 拋錯，整個 server 會啟動失敗（future-list F002）。
+let geminiProvider: ReturnType<typeof createGoogleGenerativeAI> | null = null;
+function gemini(modelId: string) {
+  if (!geminiProvider) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY not configured');
+    }
+    geminiProvider = createGoogleGenerativeAI({ apiKey });
+  }
+  return geminiProvider(modelId);
 }
-
-const gemini = createGoogleGenerativeAI({ apiKey });
 
 // vLLM / Ollama Configuration
 const VLLM_CONFIG = {

@@ -133,10 +133,10 @@ cd ~/grading && PREV=$(grep '^IMAGE_TAG=' .env.backup | cut -d= -f2-) && sed -i 
 
 ## 7. 已知限制與待辦
 
-- **評分主流程只走 Gemini，失敗退 OpenAI**：三條評分路徑（Agent / AI SDK / Legacy）都沒有 vLLM；vLLM 只用在評分對話、
-  辯證回饋、平台助理。目前 `.env` 的 `GEMINI_API_KEY` 是佔位值、`OPENAI_API_KEY` 空，送出評分會失敗，其餘功能正常；
-  要嘛補真實 key，要嘛實作 vLLM 評分路徑（決策待定）。
-- **`GEMINI_API_KEY` 不能為空字串**：否則 app 啟動卡住（`future-list.md` F002）。
+- **評分供應商順序**：Agent 路徑與 AI SDK 路徑都依 `GRADING_PROVIDER_ORDER`（預設 `vllm,gemini,openai`）依序嘗試，
+  vLLM 以 `GET /models` 健康檢查決定可用與否；Legacy 路徑仍是 Gemini → OpenAI。目前 `.env` 的 `GEMINI_API_KEY` 是佔位值、
+  `OPENAI_API_KEY` 空，所以 vLLM 不可用時評分會失敗；補上真實 key 就自動成為備援。Agent 路徑不支援 OpenAI 備援。
+- **`GEMINI_API_KEY` 不能為空字串**：舊版會讓 app 啟動卡住；已改為延遲初始化（`future-list.md` F002），但仍建議放佔位值。
 - **pdf-service 是 mirror**：原始碼在公開 repo chunchiehdev/grading-pdf，自建映像見 `future-list.md` F001。
 - **nginx 未設 CSP**：React Router hydration 用 inline script，正式強制前需要 nonce 機制。
 - **通知原開發者輪替**：`deploy/k8s-legacy/main-service/monitor.k3s/` 與 `overlays/monitor-k3s/helm-values/`

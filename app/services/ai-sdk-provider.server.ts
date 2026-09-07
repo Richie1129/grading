@@ -26,6 +26,7 @@ import { getKeyHealthTracker, type ErrorType } from './gemini-key-health.server'
 import { formatThoughtSummary } from './thought-formatter.server';
 import { GoogleGenAI } from '@google/genai';
 import { GeminiCacheManager } from './gemini-cache.server';
+import { checkVllmHealth, createVllmChatModel, getVllmConfig, isVllmConfigured } from './vllm-provider.server';
 
 // Zod schema for grading result (matching legacy GradingResultData format)
 const CriterionGradeSchema = z.object({
@@ -35,7 +36,7 @@ const CriterionGradeSchema = z.object({
   feedback: z.string(),
 });
 
-const GradingResultSchema = z.object({
+export const GradingResultSchema = z.object({
   breakdown: z.array(CriterionGradeSchema),
   overallFeedback: z.string(),
   summary: z.string().optional(),
@@ -51,6 +52,28 @@ const GradingResultSchema = z.object({
 });
 
 export type AIGradingResult = z.infer<typeof GradingResultSchema>;
+
+/**
+ * 評分供應商。順序由 ai-grader-sdk 的 GRADING_PROVIDER_ORDER 決定（預設 vllm → gemini → openai）。
+ */
+export type GradingProvider = 'vllm' | 'gemini' | 'openai';
+
+export const GEMINI_GRADING_MODEL = 'gemini-3.1-flash-lite';
+export const OPENAI_GRADING_MODEL = 'gpt-4o-mini';
+
+/**
+ * 供 metadata / 記錄使用的模型名稱
+ */
+export function getModelNameForProvider(provider: GradingProvider): string {
+  switch (provider) {
+    case 'vllm':
+      return getVllmConfig().modelName || 'vllm';
+    case 'gemini':
+      return GEMINI_GRADING_MODEL;
+    case 'openai':
+      return OPENAI_GRADING_MODEL;
+  }
+}
 
 interface GradingParams {
   prompt: string;
@@ -71,7 +94,7 @@ interface GradingSuccess {
     completionTokens: number;
     totalTokens: number;
   };
-  provider: 'gemini' | 'openai';
+  provider: GradingProvider;
   keyId?: string;
   responseTimeMs: number;
   thoughtSummary?: string; // Deprecated
@@ -82,7 +105,7 @@ interface GradingSuccess {
 interface GradingFailure {
   success: false;
   error: string;
-  provider?: 'gemini' | 'openai';
+  provider?: GradingProvider;
   keyId?: string;
   rawOutput?: string;
   validationError?: string;
@@ -217,13 +240,13 @@ export async function gradeWithGemini(params: GradingParams): Promise<GradingRes
       userId,
       resultId,
       keyId: selectedKeyId,
-      model: 'gemini-3.1-flash-lite',
+      model: GEMINI_GRADING_MODEL,
     }, 'Grading with Gemini (AI SDK)');
 
     // Enable Gemini thinking/reasoning mode
     // Docs: https://ai.google.dev/gemini-api/docs/thinking
     const result = await generateObject({
-      model: geminiProvider('gemini-3.1-flash-lite'),
+      model: geminiProvider(GEMINI_GRADING_MODEL),
       schema: GradingResultSchema,
       prompt,
       temperature,
@@ -519,11 +542,11 @@ export async function gradeWithOpenAI(params: GradingParams): Promise<GradingRes
     logger.info({
       userId,
       resultId,
-      model: 'gpt-4o-mini',
+      model: OPENAI_GRADING_MODEL,
     }, 'Grading with OpenAI (AI SDK)');
 
     const result = await generateObject({
-      model: openaiProvider('gpt-4o-mini'),
+      model: openaiProvider(OPENAI_GRADING_MODEL),
       schema: GradingResultSchema,
       prompt,
       temperature,
@@ -605,6 +628,114 @@ export async function gradeWithOpenAI(params: GradingParams): Promise<GradingRes
       success: false,
       error: error instanceof Error ? error.message : 'Unknown OpenAI error',
       provider: 'openai',
+    };
+  }
+}
+
+/**
+ * Grade with vLLM（OpenAI 相容端點）using AI SDK — 預設的第一順位供應商
+ *
+ * 與 Gemini 路徑的差異：沒有 context caching、沒有 thinking 摘要（模型不回 reasoning），
+ * 也不使用 KeyHealthTracker（那是 Gemini 三把 key 的輪替機制）。
+ * 端點以 json_schema response_format 產生結構化輸出，不可用時回 success:false 讓上層退回 Gemini / OpenAI。
+ */
+export async function gradeWithVllm(params: GradingParams): Promise<GradingResult> {
+  const { prompt, userId, resultId, temperature = 0.3 } = params;
+  const config = getVllmConfig();
+
+  if (!isVllmConfigured(config)) {
+    return {
+      success: false,
+      error: 'vLLM not configured (VLLM_BASE_URL / VLLM_MODEL_NAME)',
+      provider: 'vllm',
+    };
+  }
+
+  const health = await checkVllmHealth(config);
+  if (!health.healthy) {
+    return {
+      success: false,
+      error: `vLLM unavailable: ${health.error ?? 'health check failed'}`,
+      provider: 'vllm',
+    };
+  }
+
+  const startTime = Date.now();
+
+  try {
+    logger.info({
+      userId,
+      resultId,
+      model: config.modelName,
+      baseURL: config.baseURL,
+      healthLatencyMs: health.latencyMs,
+    }, 'Grading with vLLM (AI SDK)');
+
+    const result = await generateObject({
+      model: createVllmChatModel(config),
+      schema: GradingResultSchema,
+      prompt,
+      temperature,
+      maxRetries: 2,
+    });
+
+    const responseTimeMs = Date.now() - startTime;
+
+    logger.info({
+      userId,
+      resultId,
+      model: config.modelName,
+      responseTimeMs,
+      usage: result.usage,
+    }, 'vLLM grading succeeded');
+
+    return {
+      success: true,
+      data: result.object,
+      usage: {
+        promptTokens: result.usage.inputTokens ?? 0,
+        completionTokens: result.usage.outputTokens ?? 0,
+        totalTokens: result.usage.totalTokens ?? 0,
+      },
+      provider: 'vllm',
+      responseTimeMs,
+      thinkingProcess: result.reasoning, // 多數 vLLM 模型不回 reasoning，會是 undefined
+      gradingRationale: result.object.reasoning,
+    };
+  } catch (error) {
+    const responseTimeMs = Date.now() - startTime;
+
+    if (NoObjectGeneratedError.isInstance(error)) {
+      logger.error({
+        userId,
+        resultId,
+        model: config.modelName,
+        rawOutput: error.text,
+        cause: error.cause,
+        usage: error.usage,
+      }, 'vLLM failed to generate valid object');
+
+      return {
+        success: false,
+        error: 'Failed to generate valid grading result',
+        provider: 'vllm',
+        rawOutput: error.text,
+        validationError: String(error.cause),
+      };
+    }
+
+    logger.error({
+      userId,
+      resultId,
+      model: config.modelName,
+      responseTimeMs,
+      error: error instanceof Error ? error.message : String(error),
+    }, 'vLLM grading failed');
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown vLLM error',
+      provider: 'vllm',
     };
   }
 }

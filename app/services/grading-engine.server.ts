@@ -1,6 +1,7 @@
 import { db, GradingStatus, type Prisma } from '@/types/database';
 import { getAIGrader } from './ai-grader.server';
 import { gradeWithAI, convertToLegacyFormat, isAISDKGradingEnabled } from './ai-grader-sdk.server';
+import { getModelNameForProvider, GEMINI_GRADING_MODEL } from './ai-sdk-provider.server';
 import { SimpleProgressService } from './progress-simple.server';
 import { loadReferenceDocuments, getCustomGradingInstructions } from './assignment-area.server';
 import { getGradingLogger } from './grading-logger.server';
@@ -443,9 +444,9 @@ export async function processGradingResult(
           thoughtSummary,
           thinkingProcess, // New Field
           gradingRationale, // New Field
-          provider: 'gemini-agent',
+          provider: `${agentResult.provider ?? 'gemini'}-agent`,
           metadata: {
-            model: 'gemini-3.1-flash-lite-agent',
+            model: `${agentResult.modelName ?? GEMINI_GRADING_MODEL}-agent`,
             tokens: agentResult.totalTokens,
             duration: agentResult.executionTimeMs,
             agentSteps: agentResult.steps.length,
@@ -511,7 +512,7 @@ export async function processGradingResult(
           thoughtSummary: sdkResult.thoughtSummary,
           provider: sdkResult.provider,
           metadata: {
-            model: sdkResult.provider === 'gemini' ? 'gemini-3.1-flash-lite' : 'gpt-4o-mini',
+            model: getModelNameForProvider(sdkResult.provider),
             tokens: sdkResult.usage.totalTokens,
             duration: sdkResult.responseTimeMs,
           },

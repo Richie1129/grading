@@ -69,7 +69,9 @@
 ### F002: `GEMINI_API_KEY` 為空時 app 啟動卡住而不是明確失敗
 
 - **類別**：Backend
-- **狀態**：`backlog`
+- **狀態**：`backlog → done (2026-09-07)`：根因是 `platform-assistant.server.ts` 在模組載入期檢查 key 並拋錯，
+  該模組被打包進 server bundle，失敗的模組讓 `import(build)` 拒絕；已改為第一次使用時才建立 Gemini provider。
+  評分路徑改依 `GRADING_PROVIDER_ORDER` 選供應商，缺 Gemini key 時不再影響啟動。`unhandledRejection` 仍只記 log（步驟 3 未做，觀察後再決定）
 - **優先級**：P1
 - **建立日期**：2026-09-07
 - **提案來源**：首次部署到 192.168.30.111 時 verify job 失敗（`docs/DEPLOY.md` 第 8 節）

@@ -76,10 +76,14 @@ Three roles: `TEACHER`, `STUDENT`, `ADMIN`. Users must explicitly select a role 
 
 ### AI Grading Pipeline
 
-`AIGrader.grade()` in `app/services/ai-grader.server.ts`:
-1. If 3 Gemini keys configured → `RotatingGeminiService` (3× throughput)
-2. If 1 Gemini key → `SimpleGeminiService`
-3. On Gemini failure → fallback to OpenAI
+`grading-engine.server.ts` picks the path by feature flags: `USE_AGENT_GRADING=true` → `agent-executor.server.ts` (ToolLoopAgent); else `USE_AI_SDK_GRADING=true` → `ai-grader-sdk.server.ts` (`gradeWithAI`); else legacy `AIGrader` in `ai-grader.server.ts`.
+
+Provider order for the Agent and AI SDK paths comes from `GRADING_PROVIDER_ORDER` (default `vllm,gemini,openai`, see `getGradingProviderOrder()`):
+1. vLLM (OpenAI-compatible endpoint, `vllm-provider.server.ts`; skipped when `VLLM_BASE_URL` / `VLLM_MODEL_NAME` unset or health check fails)
+2. Gemini (`RotatingGeminiService` / KeyHealthTracker when 3 keys configured, single key otherwise)
+3. OpenAI (AI SDK path only; the Agent path needs tool calling and does not fall back to OpenAI)
+
+`GEMINI_API_KEY` must not be an empty string (use a placeholder if unused); see `future-list.md` F002.
 
 Heavy grading jobs are enqueued to BullMQ via `bullmq-grading.server.ts` and processed by the worker initialized in `startup.server.ts` at server boot.
 

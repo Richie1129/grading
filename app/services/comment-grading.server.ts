@@ -2,6 +2,7 @@ import { db } from '@/lib/db.server';
 import { getAIGrader } from './ai-grader.server';
 import { GeminiCacheManager } from '@/services/gemini-cache.server';
 import { gradeWithAI, convertToLegacyFormat, isAISDKGradingEnabled } from './ai-grader-sdk.server';
+import { getModelNameForProvider } from './ai-sdk-provider.server';
 import { GeminiPrompts } from './gemini-prompts.server';
 import { extractOverallFeedback } from '@/utils/grading-helpers';
 import {
@@ -217,7 +218,7 @@ export async function gradeComment(
           thoughtSummary: sdkResult.thoughtSummary,
           provider: sdkResult.provider,
           metadata: {
-            model: sdkResult.provider === 'gemini' ? 'gemini-3.1-flash-lite' : 'gpt-4o-mini',
+            model: getModelNameForProvider(sdkResult.provider),
             tokens: sdkResult.usage.totalTokens,
             duration: sdkResult.responseTimeMs,
           },

@@ -18,6 +18,14 @@ if (fs.existsSync(envPath)) {
 
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
+  // tsconfig.json 把 **/*.test.ts 排除在外，vite-tsconfig-paths 不會替測試檔套用 @/ 與 ~/ 別名，
+  // 這裡明確宣告，讓 test/ 底下的 import '@/services/...' 也能解析
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'app'),
+      '~': path.resolve(__dirname, 'app'),
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

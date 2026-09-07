@@ -102,7 +102,9 @@ services:
       - INTERNAL_API_KEY=${INTERNAL_API_KEY}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      # AI 供應商（KEY2 / KEY3 三把齊全才啟用輪替；OPENAI 為 Gemini 失敗時的備援）
+      # AI 供應商：評分依 GRADING_PROVIDER_ORDER 依序嘗試（預設 vllm → gemini → openai）。
+      # Gemini 三把 key 齊全才啟用輪替；三個供應商的 key 都保留，補上即可用
+      - GRADING_PROVIDER_ORDER=${GRADING_PROVIDER_ORDER:-vllm,gemini,openai}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_API_KEY2=${GEMINI_API_KEY2:-}
       - GEMINI_API_KEY3=${GEMINI_API_KEY3:-}
@@ -110,6 +112,7 @@ services:
       - VLLM_BASE_URL=${VLLM_BASE_URL:-}
       - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-}
       - VLLM_API_KEY=${VLLM_API_KEY:-}
+      - VLLM_HEALTH_TIMEOUT_MS=${VLLM_HEALTH_TIMEOUT_MS:-1500}
       - GOOGLE_SEARCH_API_KEY=${GOOGLE_SEARCH_API_KEY:-}
       - GOOGLE_SEARCH_ENGINE_ID=${GOOGLE_SEARCH_ENGINE_ID:-}
       # 評分行為（預設沿用原 prod-k3s configmap）

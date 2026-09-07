@@ -38,6 +38,9 @@ export interface AgentGradingResult {
     byTool: Record<string, number>;
   };
   error?: string;
+  /** 實際使用的模型供應商（Agent 路徑支援 vllm / gemini） */
+  provider?: 'vllm' | 'gemini';
+  modelName?: string;
 }
 
 /**

@@ -23,10 +23,15 @@ env:
   WS_IMAGE: ghcr.io/richie1129/grading-websocket
   PDF_IMAGE: ghcr.io/richie1129/grading-pdf
   # pdf-service 沒有原始碼在本 repo（見 future-list.md F001），從上游 Docker Hub 以 digest 複製到 ghcr。
-  # 這個 digest 對應 docker.io/chunchiehdev/grading-pdf:master（commit 68e454e，2025-05-30）；
-  # 要換版時同步改這裡與 deploy/docker-compose.server.yml 的 image digest。
+  # PDF_SOURCE_DIGEST 是 docker.io/chunchiehdev/grading-pdf:master（commit 68e454e，2025-05-30）在 Docker Hub 的
+  # manifest digest（Docker schema2 格式）。buildx 複製到 ghcr 時會把 manifest 重新編碼成 OCI 格式：layers 與 config
+  # 完全相同、但 manifest digest 改變，所以 compose 釘的是 ghcr 這邊的 PDF_DIGEST；PDF_CONFIG_DIGEST 是兩邊共同的
+  # config digest，用來證明內容一致。三個值都是首次 mirror 後實測記錄；要換版時同步改這裡與
+  # deploy/docker-compose.server.yml 的 image digest。
   PDF_SOURCE: docker.io/chunchiehdev/grading-pdf
-  PDF_DIGEST: sha256:cee5b9d5cb00e663eace065d44fdae291403df8b3b513147d1b9fe60e0ec45e7
+  PDF_SOURCE_DIGEST: sha256:cee5b9d5cb00e663eace065d44fdae291403df8b3b513147d1b9fe60e0ec45e7
+  PDF_DIGEST: sha256:98dc91e00c44e2749ea4498f410cc9f51df78f1cd7a1eee4e0b23dbf1e2f7075
+  PDF_CONFIG_DIGEST: sha256:bbf7f3348fb287d5667fd8aae12cf6ecd593b4b8cdb8b8e157c3b2a336f41240
   # 動態映像標籤：Git commit SHA 作為唯一版號
   IMAGE_TAG: ${{ github.sha }}
   # 伺服器上的部署目錄（docker-compose.yml、nginx.conf、.env 都在這裡；compose 專案名稱固定為 grading）
@@ -118,17 +123,18 @@ jobs:
           if [ "${CURRENT}" = "${PDF_DIGEST}" ]; then
             echo "✅ ghcr 上 ${PDF_IMAGE}:master 已是 ${PDF_DIGEST}，跳過複製"
           else
-            echo "📥 複製 ${PDF_SOURCE}@${PDF_DIGEST} → ${PDF_IMAGE}:master"
-            # 單一來源時 imagetools create 會原樣複製 manifest 與 layers，digest 不變；下面再驗證一次
+            echo "📥 複製 ${PDF_SOURCE}@${PDF_SOURCE_DIGEST} → ${PDF_IMAGE}:master"
+            # imagetools create 會複製全部 layers 與 config，但 manifest 會重新編碼成 OCI 格式（digest 改變）；下面驗證
             docker buildx imagetools create \
               --tag "${PDF_IMAGE}:master" \
-              --tag "${PDF_IMAGE}:sha256-${PDF_DIGEST#sha256:}" \
-              "${PDF_SOURCE}@${PDF_DIGEST}"
+              --tag "${PDF_IMAGE}:src-sha256-${PDF_SOURCE_DIGEST#sha256:}" \
+              "${PDF_SOURCE}@${PDF_SOURCE_DIGEST}"
           fi
           ACTUAL=$(docker buildx imagetools inspect "${PDF_IMAGE}:master" --format '{{.Manifest.Digest}}')
-          echo "ghcr master digest: ${ACTUAL}"
-          if [ "${ACTUAL}" != "${PDF_DIGEST}" ]; then
-            echo "::error::ghcr 上 ${PDF_IMAGE}:master 的 digest 與釘死值不符，compose 以 digest 拉取會失敗；請確認 PDF_DIGEST"
+          CONFIG=$(docker buildx imagetools inspect "${PDF_IMAGE}:master" --raw | jq -r '.config.digest')
+          echo "ghcr master: manifest=${ACTUAL} config=${CONFIG}"
+          if [ "${ACTUAL}" != "${PDF_DIGEST}" ] || [ "${CONFIG}" != "${PDF_CONFIG_DIGEST}" ]; then
+            echo "::error::ghcr 上 ${PDF_IMAGE}:master 的 manifest 或 config digest 與釘死值不符，compose 以 digest 拉取會失敗；請確認 PDF_DIGEST / PDF_CONFIG_DIGEST"
             exit 1
           fi
 

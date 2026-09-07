@@ -275,10 +275,11 @@ services:
       - grading_net
 
   # PDF 解析服務（FastAPI）。原始碼在 https://github.com/chunchiehdev/grading-pdf（commit 68e454e），
-  # 映像由 CI mirror 自 docker.io/chunchiehdev/grading-pdf:master，以 digest 釘死。
+  # 映像由 CI mirror 自 docker.io/chunchiehdev/grading-pdf:master（Docker Hub digest sha256:cee5b9d5…），
+  # 複製到 ghcr 時 manifest 重新編碼成 OCI 格式，這裡釘的是 ghcr 上的 digest（deploy.yml 的 PDF_DIGEST，兩處要一致）。
   # 程式碼只讀 REDIS_URL / PORT / MAX_FILE_SIZE；舊 k8s manifests 的 CELERY_* 變數程式碼不讀，不搬。
   pdf-api:
-    image: ghcr.io/richie1129/grading-pdf@sha256:cee5b9d5cb00e663eace065d44fdae291403df8b3b513147d1b9fe60e0ec45e7
+    image: ghcr.io/richie1129/grading-pdf@sha256:98dc91e00c44e2749ea4498f410cc9f51df78f1cd7a1eee4e0b23dbf1e2f7075
     restart: always
     logging: *default-logging
     # 映像本身以 root 執行，這裡改用固定 uid；/app/.venv 只需讀取，HOME 指到 /tmp 給 Python 快取用
@@ -310,7 +311,7 @@ services:
 
   # Celery worker（MarkItDown 轉 Markdown）。concurrency 由原本 4 降為 2，單副本起步
   pdf-worker:
-    image: ghcr.io/richie1129/grading-pdf@sha256:cee5b9d5cb00e663eace065d44fdae291403df8b3b513147d1b9fe60e0ec45e7
+    image: ghcr.io/richie1129/grading-pdf@sha256:98dc91e00c44e2749ea4498f410cc9f51df78f1cd7a1eee4e0b23dbf1e2f7075
     restart: always
     logging: *default-logging
     user: "10001:10001"

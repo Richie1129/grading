@@ -57,18 +57,27 @@ RUN apt-get update && apt-get install -y \
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-COPY package*.json ./
-COPY prisma ./prisma/
+# tsx 給 scripts/（npm run seed:admin 等）用；寫 /usr/local 需要 root，所以放在切換使用者之前
+RUN npm install -g tsx
 
-RUN npm install --omit=dev && npm install -g tsx
+# 之後全部以非 root 的 node 使用者（uid 1000，node 官方映像內建）執行。
+# Puppeteer 啟動 Chromium 時已帶 --no-sandbox / --disable-setuid-sandbox，非 root 不受影響。
+RUN chown node:node /app
+USER node
 
-COPY --from=builder /app/build ./build
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/app/generated ./app/generated
-COPY --from=builder /app/version.json ./version.json
-COPY --from=builder /app/scripts ./scripts
+COPY --chown=node:node package*.json ./
+COPY --chown=node:node prisma ./prisma/
 
+# 依 lockfile 安裝 production 相依（與 builder 的 npm ci 一致，不用 npm install 以免版本漂移）。
+# prisma CLI 列在 dependencies，供部署時 npx prisma migrate deploy 使用。
+RUN npm ci --omit=dev && npm cache clean --force
+
+COPY --from=builder --chown=node:node /app/build ./build
+COPY --from=builder --chown=node:node /app/public ./public
+COPY --from=builder --chown=node:node /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder --chown=node:node /app/app/generated ./app/generated
+COPY --from=builder --chown=node:node /app/version.json ./version.json
+COPY --from=builder --chown=node:node /app/scripts ./scripts
 
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -76,4 +85,3 @@ ENV PORT=3000
 EXPOSE 3000
 
 CMD ["npm", "run", "start"]
-

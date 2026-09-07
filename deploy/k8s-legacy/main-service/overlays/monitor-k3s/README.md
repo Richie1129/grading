@@ -30,7 +30,7 @@ helm install grafana bitnami/grafana \
 ## Access
 
 - **Grafana**: https://grafana.grading.software
-- **Default credentials**: admin / admin123
+- **Default credentials**: 見 helm-values（已改為 placeholder，部署前自行設定）
 
 ## Uninstall
 

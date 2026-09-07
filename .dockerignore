@@ -11,4 +11,19 @@ npm-debug.log
 build
 .vscode
 .idea
-.md 
+*.md
+# 建構不需要的目錄：縮小 build context，且文件變動不會讓 npm ci 之後的層失效
+deploy/
+docs/
+specs/
+test/
+test-artifacts/
+logs/
+coverage/
+.github/
+.claude/
+.cursor/
+.specify/
+.react-router/
+# websocket-server 有自己的 build context 與 .dockerignore
+websocket-server/

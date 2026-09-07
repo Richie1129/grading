@@ -2,8 +2,8 @@ auth:
   enabled: true
   admin:
     username: admin
-    password: admin123  
-    token: Sxqxt9qEciT2nsQufVXv       
+    password: CHANGE_ME
+    token: CHANGE_ME_TOKEN
 
 influxdb:
   resources:

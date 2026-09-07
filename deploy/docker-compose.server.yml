@@ -1,0 +1,339 @@
+# 伺服器端部署用 Compose 檔（來源受版本控管，部署時複製到伺服器）
+#
+# 用法：複製到伺服器 /home/richie/grading/docker-compose.yml，
+#       同目錄需有 nginx.conf 與 .env（含 IMAGE_TAG 與各項機密；.env 只存在伺服器、不進 git）。
+# CI（.github/workflows/deploy.yml）只會 pull 映像、跑 migration、up -d，
+# 不會覆寫此檔；此檔有更動時需手動 scp 到伺服器（步驟見 docs/DEPLOY.md）。
+#
+# 設計重點（與同機 SDL 專案的 deploy/docker-compose.server.yml 對齊）：
+# - 專案名稱固定為 grading：容器、network、volume 全帶 grading_ 前綴，與同機的 SDL 專案完全隔離
+# - nginx 不發布主機 80；對外一律走 Cloudflare Tunnel（cloudflared → http://nginx:80），
+#   區網除錯只綁 127.0.0.1:8080
+# - postgres / redis / minio 的主機埠只綁 127.0.0.1，且避開 SDL 已用的 15432 / 9000 / 9001 / 5555
+#   與主機 systemd PostgreSQL 的 5432；需要圖形介面用 ssh -L 轉埠
+# - 每個服務都設 json-file 日誌輪替與記憶體上限（上限是 cap 不是保留量）
+# - app（Dockerfile USER node）、websocket（映像內 uid 1001）、pdf-api / pdf-worker（user: 10001）皆以非 root 執行；
+#   postgres / redis / minio 沿用官方映像的預設使用者
+# - pdf-service 映像以 digest 釘死，由 CI 的 mirror-pdf job 從 Docker Hub 複製到 ghcr；
+#   要換版時同步改這裡與 deploy.yml 的 PDF_DIGEST
+# - websocket 程式碼讀的是 MAIN_APP_URL 並需要 INTERNAL_API_KEY 回呼主程式（舊 k8s manifests 寫錯，這裡以程式碼為準）
+# - 副本一律 1；日後需要提高 BullMQ 吞吐時再對 app 加 deploy.replicas
+
+name: grading
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    restart: always
+    logging: *default-logging
+    ports:
+      # 只給區網 / 本機除錯與 CI verify；正式流量走 cloudflared，不需任何對外主機埠
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+      - websocket
+    networks:
+      - grading_net
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # Cloudflare Tunnel：grading.wuretedu.com → http://nginx:80（在 Zero Trust 後台設定 Public Hostname）
+  # 未設定 token 前不啟動（profile），避免 crash loop 讓 verify job 誤判為部署失敗
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: always
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+    logging: *default-logging
+    depends_on:
+      - nginx
+    networks:
+      - grading_net
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  app:
+    image: ghcr.io/richie1129/grading-app:${IMAGE_TAG:-master}
+    restart: always
+    logging: *default-logging
+    expose:
+      - "3000"
+    # 只注入程式碼實際讀取的變數，不用 env_file 整包灌入（避免 tunnel token、DB 密碼等外洩到 app 容器）
+    environment:
+      # 執行環境
+      - NODE_ENV=production
+      - PORT=3000
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - PRISMA_LOG_LEVEL=${PRISMA_LOG_LEVEL:-error}
+      # 對外網址（邀請連結、OAuth 回呼）；SERVER_URL 是 loader 內部回呼自己的 API，走容器內 loopback
+      - APP_BASE_URL=${APP_BASE_URL}
+      - SERVER_URL=http://127.0.0.1:3000
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
+      # 資料庫 / 快取 / 物件儲存：容器內部固定走 compose service name
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET=${MINIO_BUCKET:-grading-files}
+      # PDF 解析服務（同 compose 內的 pdf-api）
+      - PDF_PARSER_API_URL=http://pdf-api:8000
+      - PDF_PARSER_TIMEOUT_MS=${PDF_PARSER_TIMEOUT_MS:-30000}
+      - PDF_PARSER_RETRIES=${PDF_PARSER_RETRIES:-2}
+      # 認證
+      - AUTH_SECRET=${AUTH_SECRET}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      # AI 供應商（KEY2 / KEY3 三把齊全才啟用輪替；OPENAI 為 Gemini 失敗時的備援）
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_API_KEY2=${GEMINI_API_KEY2:-}
+      - GEMINI_API_KEY3=${GEMINI_API_KEY3:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-}
+      - VLLM_MODEL_NAME=${VLLM_MODEL_NAME:-}
+      - VLLM_API_KEY=${VLLM_API_KEY:-}
+      - GOOGLE_SEARCH_API_KEY=${GOOGLE_SEARCH_API_KEY:-}
+      - GOOGLE_SEARCH_ENGINE_ID=${GOOGLE_SEARCH_ENGINE_ID:-}
+      # 評分行為（預設沿用原 prod-k3s configmap）
+      - USE_AGENT_GRADING=${USE_AGENT_GRADING:-true}
+      - AGENT_CONFIDENCE_THRESHOLD=${AGENT_CONFIDENCE_THRESHOLD:-0.7}
+      - CHAT_STUDENT_CONTENT_MAX_CHARS=${CHAT_STUDENT_CONTENT_MAX_CHARS:-3000}
+      - CHAT_REFERENCE_CONTENT_MAX_CHARS=${CHAT_REFERENCE_CONTENT_MAX_CHARS:-20000}
+      - CHAT_REFERENCE_FILES_MAX_COUNT=${CHAT_REFERENCE_FILES_MAX_COUNT:-5}
+      - CHAT_TOTAL_REFERENCE_MAX_CHARS=${CHAT_TOTAL_REFERENCE_MAX_CHARS:-30000}
+      # 首位管理員（docker compose run --rm --no-deps app npm run seed:admin 時使用）
+      - FIRST_ADMIN_EMAIL=${FIRST_ADMIN_EMAIL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      pdf-api:
+        condition: service_started
+    healthcheck:
+      # /health 會實際 SELECT 1 與 redis PING；映像是 node:22-slim 沒有 curl，用 node fetch
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - grading_net
+    deploy:
+      resources:
+        limits:
+          # Node + Prisma + Puppeteer/Chromium；k8s 原本的 512Mi 對 Chromium 不夠
+          memory: 3G
+
+  websocket:
+    image: ghcr.io/richie1129/grading-websocket:${IMAGE_TAG:-master}
+    restart: always
+    logging: *default-logging
+    expose:
+      - "3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      # 回呼主程式（/api/messages 等）；名稱以程式碼 websocket-server/src/api-client.ts 為準
+      - MAIN_APP_URL=http://app:3000
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      # Socket.IO CORS 白名單，逗號分隔
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    # healthcheck 由映像內建（websocket-server/Dockerfile 的 HEALTHCHECK）
+    networks:
+      - grading_net
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    logging: *default-logging
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      # 只綁 loopback；避開 SDL 的 15432 與主機 systemd PostgreSQL 的 5432
+      - "127.0.0.1:25432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - grading_net
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  redis:
+    image: redis:7.4-alpine
+    restart: always
+    logging: *default-logging
+    # BullMQ 要求 maxmemory-policy=noeviction（redis 預設值），這裡不另設 maxmemory，改以容器記憶體上限保護
+    # db 0 給主程式（BullMQ / 快取 / pub-sub）、db 1 給 pdf-service 的 Celery
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    ports:
+      - "127.0.0.1:26379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - grading_net
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  minio:
+    image: minio/minio:RELEASE.2025-05-24T17-08-30Z
+    restart: always
+    logging: *default-logging
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
+    ports:
+      # 檔案下載一律由主程式 /api/files 代理，瀏覽器不直連 MinIO；9000 / 9001 只綁 loopback 供除錯
+      - "127.0.0.1:29000:9000"
+      - "127.0.0.1:29001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    networks:
+      - grading_net
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # 一次性：建立 bucket（可重複執行）。不設匿名讀取，檔案存取一律經主程式代理
+  minio-init:
+    image: minio/minio:RELEASE.2025-05-24T17-08-30Z
+    logging: *default-logging
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET=${MINIO_BUCKET:-grading-files}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set grading http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "grading/$$MINIO_BUCKET"
+        echo "MinIO bucket ready: $$MINIO_BUCKET"
+    networks:
+      - grading_net
+
+  # PDF 解析服務（FastAPI）。原始碼在 https://github.com/chunchiehdev/grading-pdf（commit 68e454e），
+  # 映像由 CI mirror 自 docker.io/chunchiehdev/grading-pdf:master，以 digest 釘死。
+  # 程式碼只讀 REDIS_URL / PORT / MAX_FILE_SIZE；舊 k8s manifests 的 CELERY_* 變數程式碼不讀，不搬。
+  pdf-api:
+    image: ghcr.io/richie1129/grading-pdf@sha256:cee5b9d5cb00e663eace065d44fdae291403df8b3b513147d1b9fe60e0ec45e7
+    restart: always
+    logging: *default-logging
+    # 映像本身以 root 執行，這裡改用固定 uid；/app/.venv 只需讀取，HOME 指到 /tmp 給 Python 快取用
+    user: "10001:10001"
+    expose:
+      - "8000"
+    environment:
+      - PORT=8000
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - MAX_FILE_SIZE=50
+      - HOME=/tmp
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - grading_net
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # Celery worker（MarkItDown 轉 Markdown）。concurrency 由原本 4 降為 2，單副本起步
+  pdf-worker:
+    image: ghcr.io/richie1129/grading-pdf@sha256:cee5b9d5cb00e663eace065d44fdae291403df8b3b513147d1b9fe60e0ec45e7
+    restart: always
+    logging: *default-logging
+    user: "10001:10001"
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+      - HOME=/tmp
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - grading_net
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+
+networks:
+  grading_net:
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

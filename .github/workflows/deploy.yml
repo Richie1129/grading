@@ -1,400 +1,287 @@
-name: Docker CI/CD
+name: Deploy to Production
+
+# push 到 master：build 映像 → mirror pdf-service 映像 → SSH 進伺服器部署 → 驗證
+# 手動觸發（workflow_dispatch）可用來重跑部署，例如伺服器端 .env 改完後
 on:
   push:
     branches:
-      - "master"
-      - "development"
+      - master
+  workflow_dispatch:
 
+# 同一分支同時只允許一個部署流程；排隊等待，不中斷進行中的 migration
 concurrency:
   group: deploy-${{ github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
-permissions:
-  contents: write
-  packages: write
+env:
+  SERVER_HOST: ${{ secrets.SERVER_HOST }}
+  SERVER_USER: ${{ secrets.SERVER_USER }}
+  SERVER_SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+  # 映像一律推到 GitHub Container Registry：private 映像沒有數量限制，
+  # 推與拉都用 workflow 自帶的 GITHUB_TOKEN，不需要額外 secret。ghcr 的映像名稱必須全小寫。
+  APP_IMAGE: ghcr.io/richie1129/grading-app
+  WS_IMAGE: ghcr.io/richie1129/grading-websocket
+  PDF_IMAGE: ghcr.io/richie1129/grading-pdf
+  # pdf-service 沒有原始碼在本 repo（見 future-list.md F001），從上游 Docker Hub 以 digest 複製到 ghcr。
+  # 這個 digest 對應 docker.io/chunchiehdev/grading-pdf:master（commit 68e454e，2025-05-30）；
+  # 要換版時同步改這裡與 deploy/docker-compose.server.yml 的 image digest。
+  PDF_SOURCE: docker.io/chunchiehdev/grading-pdf
+  PDF_DIGEST: sha256:cee5b9d5cb00e663eace065d44fdae291403df8b3b513147d1b9fe60e0ec45e7
+  # 動態映像標籤：Git commit SHA 作為唯一版號
+  IMAGE_TAG: ${{ github.sha }}
+  # 伺服器上的部署目錄（docker-compose.yml、nginx.conf、.env 都在這裡；compose 專案名稱固定為 grading）
+  DEPLOY_DIR: /home/richie/grading
 
 jobs:
-  # ============================================
-  # Job 1: Build Docker Images (with cache)
-  # ============================================
+  # ────────────────────────────────────────────────────────────────
+  # Job 1：建構並推送主程式與 websocket 映像
+  # ────────────────────────────────────────────────────────────────
   build:
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'master' && 'production' || 'development' }}
-    outputs:
-      version: ${{ steps.package-version.outputs.VERSION }}
-      bump_type: ${{ steps.version-update.outputs.BUMP_TYPE }}
+    permissions:
+      contents: read
+      packages: write
+
     steps:
-    - name: Start Build
-      run: echo "🚀 Starting build - Branch:${{ github.ref_name }}"
+      - name: 📥 Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        fetch-depth: 0
+      - name: 🏷️ 讀取版本資訊（寫入映像內的 version.json）
+        id: meta
+        run: |
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-    # Version Management
-    - name: Auto-update version based on commit message
-      id: version-update
-      run: |
-        chmod +x .github/scripts/auto-version.sh
-        .github/scripts/auto-version.sh "${{ github.ref_name }}" "${{ github.event.head_commit.message }}" >> $GITHUB_OUTPUT
+      - name: 🔧 Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-    - name: Get version
-      id: package-version
-      run: echo "VERSION=${{ steps.version-update.outputs.DISPLAY_VERSION }}" >> $GITHUB_OUTPUT
+      - name: 🔐 Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Commit and push version bump
-      if: steps.version-update.outputs.BUMP_TYPE != 'none' && github.ref_name == 'master'
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add package.json
-        git commit -m "chore: bump version to ${{ steps.package-version.outputs.VERSION }} [skip ci]"
-        git push origin ${{ github.ref_name }}
+      - name: 🏗️ Build and push app image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          # 雙標籤：精確 SHA 版本 + master 最新標籤
+          tags: |
+            ${{ env.APP_IMAGE }}:${{ env.IMAGE_TAG }}
+            ${{ env.APP_IMAGE }}:master
+          build-args: |
+            BUILD_VERSION=${{ steps.meta.outputs.version }}
+            BUILD_BRANCH=${{ github.ref_name }}
+            BUILD_COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
 
-    # Docker Build with Buildx + Cache
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: 🔌 Build and push websocket image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ./websocket-server
+          file: ./websocket-server/Dockerfile
+          push: true
+          tags: |
+            ${{ env.WS_IMAGE }}:${{ env.IMAGE_TAG }}
+            ${{ env.WS_IMAGE }}:master
+          cache-from: type=gha,scope=websocket
+          cache-to: type=gha,mode=max,scope=websocket
 
-    - name: Login to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_TOKEN }}
-
-    - name: Build and push Main App
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: true
-        tags: |
-          chunchiehdev/gradsystem:${{ github.ref_name }}
-          chunchiehdev/gradsystem:${{ steps.package-version.outputs.VERSION }}
-        build-args: |
-          BUILD_VERSION=${{ steps.package-version.outputs.VERSION }}
-          BUILD_BRANCH=${{ github.ref_name }}
-          BUILD_COMMIT=${{ github.sha }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    - name: Build and push WebSocket Server
-      uses: docker/build-push-action@v5
-      with:
-        context: ./websocket-server
-        push: true
-        tags: |
-          chunchiehdev/websocket-server:${{ github.ref_name }}
-          chunchiehdev/websocket-server:${{ steps.package-version.outputs.VERSION }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-  # ============================================
-  # Job 2: Deploy to K3s (parallel with Mars)
-  # ============================================
-  deploy-k3s:
-    needs: build
+  # ────────────────────────────────────────────────────────────────
+  # Job 2：把 pdf-service 映像從 Docker Hub 以 digest 複製到 ghcr（與 build 平行）
+  # ────────────────────────────────────────────────────────────────
+  mirror-pdf:
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'master' && 'production' || 'development' }}
+    permissions:
+      packages: write
+
     steps:
-    - uses: actions/checkout@v4
+      - name: 🔧 Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
-    # Cache kubectl & kustomize
-    - name: Cache k8s tools
-      id: cache-k8s-tools
-      uses: actions/cache@v4
-      with:
-        path: ~/k8s-tools
-        key: k8s-tools-kubectl-v1.28.0-kustomize-v5
+      - name: 🔐 Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Setup kubectl & Kustomize
-      run: |
-        mkdir -p ~/k8s-tools
-        if [ ! -f ~/k8s-tools/kubectl ]; then
-          curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
-          mv kubectl ~/k8s-tools/
-        fi
-        if [ ! -f ~/k8s-tools/kustomize ]; then
-          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
-          mv kustomize ~/k8s-tools/
-        fi
-        chmod +x ~/k8s-tools/*
-        echo "$HOME/k8s-tools" >> $GITHUB_PATH
-
-    - name: Prepare kubeconfig
-      run: |
-        echo "${{ secrets.KUBE_CONFIG_K3S }}" | base64 -d > kubeconfig_k3s
-        chmod 600 kubeconfig_k3s
-
-    - name: Set variables
-      id: vars
-      run: |
-        if [ "${{ github.ref_name }}" = "master" ]; then
-          echo "OVERLAY=k8s/main-service/overlays/prod-k3s" >> $GITHUB_OUTPUT
-          echo "NS=prod" >> $GITHUB_OUTPUT
-          echo "JOB_NAME=db-migrate" >> $GITHUB_OUTPUT
-          echo "BUCKET_JOB=createbuckets" >> $GITHUB_OUTPUT
-        else
-          echo "OVERLAY=k8s/main-service/overlays/dev-k3s" >> $GITHUB_OUTPUT
-          echo "NS=dev" >> $GITHUB_OUTPUT
-          echo "JOB_NAME=db-migrate-dev" >> $GITHUB_OUTPUT
-          echo "BUCKET_JOB=createbuckets-dev" >> $GITHUB_OUTPUT
-        fi
-
-    - name: Generate secrets
-      run: |
-        if [ "${{ github.ref_name }}" = "master" ]; then
-          printf "%s" "${{ secrets.PROD_K3S_ENV_FILE }}" > ${{ steps.vars.outputs.OVERLAY }}/.secrets.env
-        else
-          printf "%s" "${{ secrets.DEV_K3S_ENV_FILE }}" > ${{ steps.vars.outputs.OVERLAY }}/.secrets.env
-        fi
-
-    - name: Update image tag
-      run: |
-        cd ${{ steps.vars.outputs.OVERLAY }}
-        kustomize edit set image chunchiehdev/gradsystem=chunchiehdev/gradsystem:${{ needs.build.outputs.version }}
-
-    - name: Deploy & Migrate
-      env:
-        KUBECONFIG: ./kubeconfig_k3s
-      run: |
-        OVERLAY="${{ steps.vars.outputs.OVERLAY }}"
-        NS="${{ steps.vars.outputs.NS }}"
-        JOB_NAME="${{ steps.vars.outputs.JOB_NAME }}"
-        BUCKET_JOB="${{ steps.vars.outputs.BUCKET_JOB }}"
-        
-        # Delete old jobs to ensure fresh runs
-        kubectl delete job $JOB_NAME -n $NS --ignore-not-found --wait=true
-        kubectl delete job $BUCKET_JOB -n $NS --ignore-not-found --wait=true
-        
-        kubectl apply -k $OVERLAY
-        
-        echo "⏳ Waiting for MinIO bucket creation..."
-        kubectl wait --for=condition=complete job/$BUCKET_JOB -n $NS --timeout=120s || {
-          echo "⚠️  MinIO bucket creation timed out (may already exist)"
-          kubectl logs -l app=createbuckets -n $NS --tail=50 || true
-        }
-        
-        echo "⏳ Waiting for migration..."
-        kubectl wait --for=condition=complete job/$JOB_NAME -n $NS --timeout=600s || {
-          echo "❌ Migration failed"
-          kubectl logs -l app.kubernetes.io/component=migration -n $NS --tail=100
-          exit 1
-        }
-        
-        echo "⏳ Waiting for rollout..."
-        kubectl rollout status deployment -n $NS -l app.kubernetes.io/name=gradsystem --timeout=300s
-        echo "✅ K3s deployment complete!"
-
-    - name: Cleanup
-      if: always()
-      run: rm -f ${{ steps.vars.outputs.OVERLAY }}/.secrets.env kubeconfig_k3s
-
-  # ============================================
-  # Job 3: Deploy to Mars (parallel with K3s)
-  # ============================================
-  deploy-mars:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'master' && 'production' || 'development' }}
-    steps:
-    - uses: actions/checkout@v4
-
-    # Cache kubectl & kustomize
-    - name: Cache k8s tools
-      id: cache-k8s-tools
-      uses: actions/cache@v4
-      with:
-        path: ~/k8s-tools
-        key: k8s-tools-kubectl-v1.28.0-kustomize-v5
-
-    - name: Setup kubectl & Kustomize
-      run: |
-        mkdir -p ~/k8s-tools
-        if [ ! -f ~/k8s-tools/kubectl ]; then
-          curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
-          mv kubectl ~/k8s-tools/
-        fi
-        if [ ! -f ~/k8s-tools/kustomize ]; then
-          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
-          mv kustomize ~/k8s-tools/
-        fi
-        chmod +x ~/k8s-tools/*
-        echo "$HOME/k8s-tools" >> $GITHUB_PATH
-
-    - name: Prepare kubeconfig
-      run: |
-        echo "${{ secrets.KUBE_CONFIG_MARS }}" | base64 -d > kubeconfig_mars
-        chmod 600 kubeconfig_mars
-
-    - name: Set variables
-      id: vars
-      run: |
-        if [ "${{ github.ref_name }}" = "master" ]; then
-          echo "OVERLAY=k8s/main-service/overlays/prod-k8s" >> $GITHUB_OUTPUT
-          echo "NS=gradsystem-prod" >> $GITHUB_OUTPUT
-          echo "JOB_NAME=db-migrate" >> $GITHUB_OUTPUT
-          echo "BUCKET_JOB=createbuckets" >> $GITHUB_OUTPUT
-          echo "PDF_OVERLAY=k8s/pdf-service/overlays/prod-k8s" >> $GITHUB_OUTPUT
-          echo "PDF_NS=grading-pdf-prod" >> $GITHUB_OUTPUT
-          echo "PDF_API_DEPLOY=grading-pdf-api" >> $GITHUB_OUTPUT
-          echo "PDF_WORKER_DEPLOY=grading-pdf-worker" >> $GITHUB_OUTPUT
-          echo "PDF_CONFIGMAP=grading-pdf-config-prod" >> $GITHUB_OUTPUT
-        else
-          echo "OVERLAY=k8s/main-service/overlays/dev-k8s" >> $GITHUB_OUTPUT
-          echo "NS=gradsystem-dev" >> $GITHUB_OUTPUT
-          echo "JOB_NAME=db-migrate-dev" >> $GITHUB_OUTPUT
-          echo "BUCKET_JOB=createbuckets-dev" >> $GITHUB_OUTPUT
-          echo "PDF_OVERLAY=k8s/pdf-service/overlays/dev-k8s" >> $GITHUB_OUTPUT
-          echo "PDF_NS=grading-pdf-dev" >> $GITHUB_OUTPUT
-          echo "PDF_API_DEPLOY=grading-pdf-api-dev" >> $GITHUB_OUTPUT
-          echo "PDF_WORKER_DEPLOY=grading-pdf-worker-dev" >> $GITHUB_OUTPUT
-          echo "PDF_CONFIGMAP=grading-pdf-config-dev" >> $GITHUB_OUTPUT
-        fi
-
-    - name: Generate secrets
-      run: |
-        if [ "${{ github.ref_name }}" = "master" ]; then
-          printf "%s" "${{ secrets.PROD_K8S_ENV_FILE }}" > ${{ steps.vars.outputs.OVERLAY }}/.secrets.env
-        else
-          printf "%s" "${{ secrets.DEV_K8S_ENV_FILE }}" > ${{ steps.vars.outputs.OVERLAY }}/.secrets.env
-        fi
-
-    - name: Update image tag
-      run: |
-        cd ${{ steps.vars.outputs.OVERLAY }}
-        kustomize edit set image chunchiehdev/gradsystem=chunchiehdev/gradsystem:${{ needs.build.outputs.version }}
-
-    - name: Deploy & Migrate
-      env:
-        KUBECONFIG: ./kubeconfig_mars
-      run: |
-        OVERLAY="${{ steps.vars.outputs.OVERLAY }}"
-        NS="${{ steps.vars.outputs.NS }}"
-        JOB_NAME="${{ steps.vars.outputs.JOB_NAME }}"
-        BUCKET_JOB="${{ steps.vars.outputs.BUCKET_JOB }}"
-        
-        # Delete old jobs to ensure fresh runs
-        kubectl delete job $JOB_NAME -n $NS --ignore-not-found --wait=true
-        kubectl delete job $BUCKET_JOB -n $NS --ignore-not-found --wait=true
-        
-        kubectl apply -k $OVERLAY
-        
-        echo "⏳ Waiting for MinIO bucket creation..."
-        kubectl wait --for=condition=complete job/$BUCKET_JOB -n $NS --timeout=120s || {
-          echo "⚠️  MinIO bucket creation timed out (may already exist)"
-          kubectl logs -l app=createbuckets -n $NS --tail=50 || true
-        }
-        
-        echo "⏳ Waiting for Mars migration..."
-        kubectl wait --for=condition=complete job/$JOB_NAME -n $NS --timeout=600s || {
-          echo "❌ Migration failed"
-          kubectl logs -l app.kubernetes.io/component=migration -n $NS --tail=100
-          exit 1
-        }
-        
-        echo "⏳ Waiting for Mars rollout..."
-        kubectl rollout status deployment -n $NS -l app.kubernetes.io/name=gradsystem --timeout=300s
-        echo "✅ Mars deployment complete!"
-
-    - name: Deploy pdf-service
-      env:
-        KUBECONFIG: ./kubeconfig_mars
-      run: |
-        PDF_OVERLAY="${{ steps.vars.outputs.PDF_OVERLAY }}"
-        PDF_NS="${{ steps.vars.outputs.PDF_NS }}"
-        PDF_API_DEPLOY="${{ steps.vars.outputs.PDF_API_DEPLOY }}"
-        PDF_WORKER_DEPLOY="${{ steps.vars.outputs.PDF_WORKER_DEPLOY }}"
-        PDF_CONFIGMAP="${{ steps.vars.outputs.PDF_CONFIGMAP }}"
-
-        # One-time cleanup for legacy dev Redis resources created by old manifest naming
-        if [ "$PDF_NS" = "grading-pdf-dev" ]; then
-          kubectl delete deployment redis-dev-dev -n $PDF_NS --ignore-not-found=true
-          kubectl delete service redis-dev-dev -n $PDF_NS --ignore-not-found=true
-
-          # Legacy redis-dev deployment used selector app=redis-dev; new manifest uses app=redis.
-          # Deployment selector is immutable, so delete legacy deployment before apply.
-          LEGACY_SELECTOR=$(kubectl get deployment redis-dev -n $PDF_NS -o jsonpath='{.spec.selector.matchLabels.app}' 2>/dev/null || true)
-          if [ "$LEGACY_SELECTOR" = "redis-dev" ]; then
-            kubectl delete deployment redis-dev -n $PDF_NS --ignore-not-found=true
+      - name: 📦 以 digest 複製 pdf-service 映像到 ghcr（已是同一 digest 則跳過）
+        run: |
+          set -euo pipefail
+          CURRENT=$(docker buildx imagetools inspect "${PDF_IMAGE}:master" --format '{{.Manifest.Digest}}' 2>/dev/null || true)
+          if [ "${CURRENT}" = "${PDF_DIGEST}" ]; then
+            echo "✅ ghcr 上 ${PDF_IMAGE}:master 已是 ${PDF_DIGEST}，跳過複製"
+          else
+            echo "📥 複製 ${PDF_SOURCE}@${PDF_DIGEST} → ${PDF_IMAGE}:master"
+            # 單一來源時 imagetools create 會原樣複製 manifest 與 layers，digest 不變；下面再驗證一次
+            docker buildx imagetools create \
+              --tag "${PDF_IMAGE}:master" \
+              --tag "${PDF_IMAGE}:sha256-${PDF_DIGEST#sha256:}" \
+              "${PDF_SOURCE}@${PDF_DIGEST}"
           fi
-        fi
+          ACTUAL=$(docker buildx imagetools inspect "${PDF_IMAGE}:master" --format '{{.Manifest.Digest}}')
+          echo "ghcr master digest: ${ACTUAL}"
+          if [ "${ACTUAL}" != "${PDF_DIGEST}" ]; then
+            echo "::error::ghcr 上 ${PDF_IMAGE}:master 的 digest 與釘死值不符，compose 以 digest 拉取會失敗；請確認 PDF_DIGEST"
+            exit 1
+          fi
 
-        kubectl apply -k $PDF_OVERLAY
+  # ────────────────────────────────────────────────────────────────
+  # Job 3：SSH 進伺服器部署（build 與 mirror 都成功才執行）
+  # ────────────────────────────────────────────────────────────────
+  deploy:
+    # self-hosted runner 架在目標伺服器上，才能連到內網 IP
+    runs-on: self-hosted
+    needs: [build, mirror-pdf]
+    permissions:
+      contents: read
+      packages: read
 
-        # Recreate pods so ConfigMap env updates are picked up
-        kubectl rollout restart deployment/$PDF_API_DEPLOY -n $PDF_NS
-        kubectl rollout restart deployment/$PDF_WORKER_DEPLOY -n $PDF_NS
-
-        echo "Waiting for pdf-service rollout..."
-        kubectl rollout status deployment/$PDF_API_DEPLOY -n $PDF_NS --timeout=300s || {
-          echo "pdf-service api rollout timed out"
-          kubectl get pods -n $PDF_NS
-        }
-        kubectl rollout status deployment/$PDF_WORKER_DEPLOY -n $PDF_NS --timeout=300s || {
-          echo "pdf-service worker rollout timed out"
-        }
-
-        # Guardrail: verify Redis env wiring from deployment spec
-        API_REDIS_CM=$(kubectl get deployment $PDF_API_DEPLOY -n $PDF_NS -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='REDIS_URL')].valueFrom.configMapKeyRef.name}")
-        API_REDIS_KEY=$(kubectl get deployment $PDF_API_DEPLOY -n $PDF_NS -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='REDIS_URL')].valueFrom.configMapKeyRef.key}")
-        WORKER_REDIS_CM=$(kubectl get deployment $PDF_WORKER_DEPLOY -n $PDF_NS -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='REDIS_URL')].valueFrom.configMapKeyRef.name}")
-        WORKER_REDIS_KEY=$(kubectl get deployment $PDF_WORKER_DEPLOY -n $PDF_NS -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='REDIS_URL')].valueFrom.configMapKeyRef.key}")
-
-        if [ "$API_REDIS_CM" != "$PDF_CONFIGMAP" ] || [ "$API_REDIS_KEY" != "REDIS_URL" ]; then
-          echo "PDF API REDIS_URL is not wired to $PDF_CONFIGMAP/REDIS_URL"
-          echo "Actual: configMap=$API_REDIS_CM key=$API_REDIS_KEY"
-          exit 1
-        fi
-
-        if [ "$WORKER_REDIS_CM" != "$PDF_CONFIGMAP" ] || [ "$WORKER_REDIS_KEY" != "REDIS_URL" ]; then
-          echo "PDF Worker REDIS_URL is not wired to $PDF_CONFIGMAP/REDIS_URL"
-          echo "Actual: configMap=$WORKER_REDIS_CM key=$WORKER_REDIS_KEY"
-          exit 1
-        fi
-
-        echo "PDF service Redis configuration verified"
-        echo "pdf-service deployment complete"
-
-    - name: Cleanup
-      if: always()
-      run: rm -f ${{ steps.vars.outputs.OVERLAY }}/.secrets.env kubeconfig_mars
-
-  # ============================================
-  # Job 4: Post-deploy (tagging, sync)
-  # ============================================
-  post-deploy:
-    needs: [build, deploy-k3s, deploy-mars]
-    runs-on: ubuntu-latest
-    if: always() && needs.build.result == 'success'
     steps:
-    - uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        fetch-depth: 0
+      - name: 🚀 Deploy to server
+        # 第三方 action 釘選 commit SHA（tag 可被改指向）
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ env.SERVER_HOST }}
+          username: ${{ env.SERVER_USER }}
+          key: ${{ env.SERVER_SSH_KEY }}
+          command_timeout: 600s
+          envs: IMAGE_TAG,APP_IMAGE,WS_IMAGE,PDF_IMAGE,PDF_DIGEST,GHCR_USER,GHCR_TOKEN,DEPLOY_DIR
+          script: |
+            set -euo pipefail
+            cd "${DEPLOY_DIR}" || { echo "❌ 部署目錄 ${DEPLOY_DIR} 不存在"; exit 1; }
+            for f in docker-compose.yml nginx.conf .env; do
+              [ -f "$f" ] || { echo "❌ ${DEPLOY_DIR}/$f 不存在，請先依 docs/DEPLOY.md 同步設定檔"; exit 1; }
+            done
 
-    - name: Create git tag
-      if: needs.build.outputs.bump_type != 'none' && github.ref_name == 'master'
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git tag -a v${{ needs.build.outputs.version }} -m "Release v${{ needs.build.outputs.version }}"
-        git push origin v${{ needs.build.outputs.version }}
+            # 磁碟餘裕檢查：剩不到 5G 就中止，不執行任何 pull
+            AVAIL_KB=$(df -Pk "${DEPLOY_DIR}" | awk 'NR==2 {print $4}')
+            echo "💾 磁碟剩餘 $((AVAIL_KB / 1024 / 1024))G"
+            if [ "${AVAIL_KB}" -lt 5242880 ]; then
+              echo "❌ 磁碟剩餘不到 5G，中止部署"; exit 1
+            fi
 
-    - name: Sync master to development
-      if: github.ref_name == 'master'
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git fetch origin development master
-        git checkout development
-        git merge origin/master -m "chore: sync from master v${{ needs.build.outputs.version }} [skip ci]"
-        git push origin development
+            # 以本次 workflow 的 GITHUB_TOKEN 登入 ghcr.io（只在 job 期間有效，結尾一定登出；
+            # 手動在伺服器 pull 私有映像時，需自備 read:packages 的 PAT 執行 docker login ghcr.io）
+            echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+            trap 'docker logout ghcr.io > /dev/null 2>&1 || true' EXIT
 
-    - name: Summary
-      run: |
-        echo "========================================"
-        echo "✅ Deployment Complete"
-        echo "Version: ${{ needs.build.outputs.version }}"
-        echo "K3s: ${{ needs.deploy-k3s.result }}"
-        echo "Mars: ${{ needs.deploy-mars.result }}"
-        echo "========================================"
+            # 備份 .env、記住上一版 tag（供回滾與清理舊映像），再寫入新的 IMAGE_TAG
+            cp .env .env.backup
+            PREV_TAG=$(grep '^IMAGE_TAG=' .env | cut -d= -f2- || true)
+            if grep -q '^IMAGE_TAG=' .env; then
+              sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${IMAGE_TAG}|" .env
+            else
+              if [ -s .env ] && [ "$(tail -c 1 .env)" != "" ]; then printf '\n' >> .env; fi
+              printf 'IMAGE_TAG=%s\n' "${IMAGE_TAG}" >> .env
+            fi
+            echo "✅ .env IMAGE_TAG: ${PREV_TAG:-（無）} → ${IMAGE_TAG}"
+
+            # 只拉本專案自己的映像；compose 專案名稱固定為 grading，不會碰到同機的 SDL 容器
+            echo "📦 拉取映像..."
+            docker compose pull app websocket pdf-api pdf-worker
+
+            echo "🗄️ 啟動基礎服務並等待 healthy..."
+            docker compose up -d --wait postgres redis minio
+
+            # Migration 安全防護：臨時容器跑 prisma migrate deploy，失敗即中止、不替換 app
+            echo "🧬 執行 Prisma migration..."
+            docker compose run --rm --no-deps app npx prisma migrate deploy || {
+              echo "❌ Migration 失敗，中止部署以保護線上服務（app 仍是上一版）"
+              exit 1
+            }
+            echo "✅ Migration 成功"
+
+            # 無停機替換：up -d 只重建有變更的容器
+            echo "🚀 啟動全部服務..."
+            docker compose up -d --remove-orphans
+
+            # 清理本專案的舊映像：保留 master、目前與上一版 tag，其餘刪除。
+            # 不用全域 docker image prune，避免動到同機 SDL 專案的映像。
+            echo "🧹 清理舊映像..."
+            for IMG in "${APP_IMAGE}" "${WS_IMAGE}"; do
+              docker images "${IMG}" --format '{{.Tag}}' | while read -r TAG; do
+                case "${TAG}" in
+                  master|"${IMAGE_TAG}"|"${PREV_TAG}"|"<none>") ;;
+                  *) docker image rm "${IMG}:${TAG}" > /dev/null 2>&1 && echo "  removed ${IMG}:${TAG}" || true ;;
+                esac
+              done
+            done
+            echo "✅ 部署完成"
+
+  # ────────────────────────────────────────────────────────────────
+  # Job 4：驗證部署結果
+  # ────────────────────────────────────────────────────────────────
+  verify:
+    runs-on: self-hosted
+    needs: deploy
+
+    steps:
+      - name: 🎯 Verify deployment
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        with:
+          host: ${{ env.SERVER_HOST }}
+          username: ${{ env.SERVER_USER }}
+          key: ${{ env.SERVER_SSH_KEY }}
+          command_timeout: 300s
+          envs: IMAGE_TAG,APP_IMAGE,WS_IMAGE,PDF_IMAGE,PDF_DIGEST,DEPLOY_DIR
+          script: |
+            set -euo pipefail
+            cd "${DEPLOY_DIR}"
+
+            echo "⏳ 等待 20 秒讓容器穩定（app 的 healthcheck start_period 是 60 秒，下面會再等）..."
+            sleep 20
+
+            if ! grep -q "^IMAGE_TAG=${IMAGE_TAG}$" .env; then
+              echo "❌ .env 的 IMAGE_TAG 不是預期值 ${IMAGE_TAG}"; grep '^IMAGE_TAG=' .env || true; exit 1
+            fi
+
+            docker compose ps
+
+            # 除了一次性的 minio-init，所有服務都必須 running；有 healthcheck 的必須 healthy（最多再等 90 秒）
+            ps_json() { docker compose ps -a --format json | jq -c 'if type=="array" then .[] else . end'; }
+            for i in $(seq 1 18); do
+              BAD=$(ps_json | jq -r 'select(.Service != "minio-init")
+                | select(.State != "running" or ((.Health // "") != "" and .Health != "healthy"))
+                | "\(.Service) state=\(.State) health=\(.Health // "-")"')
+              [ -z "${BAD}" ] && break
+              echo "...等待中 ($i/18)："; echo "${BAD}"; sleep 5
+            done
+            if [ -n "${BAD}" ]; then
+              echo "❌ 以下容器未正常運行："; echo "${BAD}"
+              docker compose logs --tail=100; exit 1
+            fi
+            INIT_STATE=$(ps_json | jq -r 'select(.Service=="minio-init") | "\(.State):\(.ExitCode)"')
+            if [ "${INIT_STATE}" != "exited:0" ]; then
+              echo "❌ minio-init 狀態 ${INIT_STATE}"; docker compose logs minio-init; exit 1
+            fi
+            echo "✅ 所有容器皆正常運行"
+
+            # 映像版本必須是本次 tag / 釘死的 digest
+            for SVC_IMG in "app:${APP_IMAGE}:${IMAGE_TAG}" "websocket:${WS_IMAGE}:${IMAGE_TAG}" "pdf-api:${PDF_IMAGE}@${PDF_DIGEST}" "pdf-worker:${PDF_IMAGE}@${PDF_DIGEST}"; do
+              SVC=${SVC_IMG%%:*}; EXPECTED=${SVC_IMG#*:}
+              CID=$(docker compose ps -q "${SVC}" | head -1)
+              RUNNING=$(docker inspect "${CID}" --format '{{.Config.Image}}')
+              if [ "${RUNNING}" != "${EXPECTED}" ]; then
+                echo "❌ ${SVC} 映像不符：running=${RUNNING} expected=${EXPECTED}"; exit 1
+              fi
+            done
+            echo "✅ 映像版本正確"
+
+            # 經 nginx（127.0.0.1:8080）打主程式 /health（會實際查 DB 與 Redis）與 Socket.IO 握手
+            HEALTH=$(curl -fsS -m 20 http://127.0.0.1:8080/health)
+            echo "/health → ${HEALTH}"
+            echo "${HEALTH}" | grep -q '"status":"healthy"' || { echo "❌ /health 非 healthy"; exit 1; }
+            curl -fsS -m 20 "http://127.0.0.1:8080/socket.io/?EIO=4&transport=polling" > /dev/null \
+              || { echo "❌ Socket.IO 握手失敗"; docker compose logs --tail=50 websocket nginx; exit 1; }
+            docker compose exec -T pdf-api python -c "import urllib.request; print('pdf-api /health →', urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read().decode())"
+            echo "✅ 驗證通過：${IMAGE_TAG}"

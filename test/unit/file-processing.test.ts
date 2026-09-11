@@ -17,6 +17,12 @@ vi.mock('@/types/database', () => ({
     gradingResult: {
       findFirst: vi.fn(),
     },
+    submission: {
+      findMany: vi.fn(),
+    },
+    assignmentArea: {
+      findMany: vi.fn(),
+    },
   },
   FileParseStatus: {
     PENDING: 'PENDING',
@@ -611,18 +617,24 @@ describe('File Processing Logic', () => {
       ];
 
       (db.uploadedFile.findMany as Mock).mockResolvedValue(expiredFiles);
+      (db.submission.findMany as Mock).mockResolvedValue([]);
+      (db.assignmentArea.findMany as Mock).mockResolvedValue([]);
       (db.uploadedFile.deleteMany as Mock).mockResolvedValue({ count: 2 });
 
       const result = await cleanupExpiredFiles();
 
       expect(result.deletedCount).toBe(2);
+      expect(result.skippedCount).toBe(0);
       expect(result.error).toBeUndefined();
 
+      // Files with grading results are filtered out by the query itself: GradingResult
+      // cascades on UploadedFile, so deleting one would delete its grading history too
       expect(db.uploadedFile.findMany).toHaveBeenCalledWith({
         where: {
           expiresAt: {
             lt: expect.any(Date),
           },
+          gradingResults: { none: {} },
         },
         select: { id: true, fileKey: true },
       });
@@ -636,12 +648,71 @@ describe('File Processing Logic', () => {
       console.log('  Expired files cleaned up successfully');
     });
 
+    it('should skip expired files still referenced by a submission', async () => {
+      (db.uploadedFile.findMany as Mock).mockResolvedValue([
+        { id: 'referenced1', fileKey: 'uploads/user1/referenced1.pdf' },
+        { id: 'orphan1', fileKey: 'uploads/user1/orphan1.pdf' },
+      ]);
+      (db.submission.findMany as Mock).mockResolvedValue([{ filePath: 'referenced1' }]);
+      (db.assignmentArea.findMany as Mock).mockResolvedValue([]);
+      (db.uploadedFile.deleteMany as Mock).mockResolvedValue({ count: 1 });
+
+      const result = await cleanupExpiredFiles();
+
+      expect(result.deletedCount).toBe(1);
+      expect(result.skippedCount).toBe(1);
+
+      // Only the orphan goes; the file a submission points to stays
+      expect(db.uploadedFile.deleteMany).toHaveBeenCalledWith({
+        where: {
+          id: { in: ['orphan1'] },
+        },
+      });
+
+      console.log('  Files referenced by submissions are preserved');
+    });
+
+    it('should skip expired files used as assignment area reference files', async () => {
+      (db.uploadedFile.findMany as Mock).mockResolvedValue([
+        { id: 'ref-file-1', fileKey: 'uploads/teacher1/ref-file-1.pdf' },
+      ]);
+      (db.submission.findMany as Mock).mockResolvedValue([]);
+      (db.assignmentArea.findMany as Mock).mockResolvedValue([
+        { id: 'area1', referenceFileIds: JSON.stringify(['ref-file-1']) },
+      ]);
+
+      const result = await cleanupExpiredFiles();
+
+      expect(result.deletedCount).toBe(0);
+      expect(result.skippedCount).toBe(1);
+      expect(db.uploadedFile.deleteMany).not.toHaveBeenCalled();
+
+      console.log('  Files used as assignment area references are preserved');
+    });
+
+    it('should delete nothing when referenced files cannot be determined', async () => {
+      (db.uploadedFile.findMany as Mock).mockResolvedValue([
+        { id: 'expired1', fileKey: 'uploads/user1/expired1.pdf' },
+      ]);
+      (db.submission.findMany as Mock).mockResolvedValue([]);
+      (db.assignmentArea.findMany as Mock).mockResolvedValue([{ id: 'area1', referenceFileIds: 'not-json' }]);
+
+      const result = await cleanupExpiredFiles();
+
+      expect(result.deletedCount).toBe(0);
+      expect(result.error).toBeDefined();
+      expect(db.uploadedFile.deleteMany).not.toHaveBeenCalled();
+
+      console.log('  Cleanup aborted when references are unreadable');
+    });
+
     it('should handle cleanup when no expired files exist', async () => {
       (db.uploadedFile.findMany as Mock).mockResolvedValue([]);
 
       const result = await cleanupExpiredFiles();
 
       expect(result.deletedCount).toBe(0);
+      expect(result.skippedCount).toBe(0);
       expect(result.error).toBeUndefined();
 
       // Should not attempt deleteMany when no files found

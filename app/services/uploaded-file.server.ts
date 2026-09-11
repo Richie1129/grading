@@ -522,40 +522,107 @@ export async function getReadyFiles(userId: string): Promise<{ files: UploadedFi
 }
 
 /**
- * Cleans up expired files
+ * Collects file IDs that are still referenced and therefore must not be cleaned up.
+ *
+ * Neither reference is a foreign key, so the database will not block deletion:
+ * - `submissions.filePath` holds an UploadedFile id (plain string column)
+ * - `assignment_areas.referenceFileIds` holds a JSON array of UploadedFile ids
  */
-export async function cleanupExpiredFiles(): Promise<{ deletedCount: number; error?: string }> {
+async function getReferencedFileIds(): Promise<Set<string>> {
+  const referencedIds = new Set<string>();
+
+  const submissions = await db.submission.findMany({ select: { filePath: true } });
+  for (const submission of submissions) {
+    if (submission.filePath) {
+      referencedIds.add(submission.filePath);
+    }
+  }
+
+  const areas = await db.assignmentArea.findMany({
+    where: { referenceFileIds: { not: null } },
+    select: { id: true, referenceFileIds: true },
+  });
+  for (const area of areas) {
+    if (!area.referenceFileIds) continue;
+
+    try {
+      const parsed: unknown = JSON.parse(area.referenceFileIds);
+      if (Array.isArray(parsed)) {
+        for (const fileId of parsed) {
+          if (typeof fileId === 'string') {
+            referencedIds.add(fileId);
+          }
+        }
+      }
+    } catch (error) {
+      // 無法得知這個作業區引用了哪些檔案，中止清理而不是冒著誤刪參考檔的風險
+      // （由 cleanupExpiredFiles 的 catch 接住，不會往上拋到 route）
+      logger.error({ err: error, assignmentAreaId: area.id }, 'Invalid referenceFileIds JSON, aborting cleanup:');
+      throw new Error(`Cannot determine referenced files: invalid referenceFileIds on assignment area ${area.id}`);
+    }
+  }
+
+  return referencedIds;
+}
+
+/**
+ * Cleans up expired files that nothing references anymore
+ *
+ * Expiry alone is not enough to delete a file. Files are skipped when:
+ * 1. They have grading results — GradingResult has `onDelete: Cascade` on UploadedFile,
+ *    so deleting the file also deletes its grading results and their AgentExecutionLogs
+ * 2. They are referenced by a submission or by an assignment area's reference files
+ *
+ * Same rule as deleteFile(): a file used in grading is never hard deleted.
+ * If the referenced-file set cannot be determined, nothing is deleted.
+ */
+export async function cleanupExpiredFiles(): Promise<{
+  deletedCount: number;
+  skippedCount: number;
+  error?: string;
+}> {
   try {
     const expiredFiles = await db.uploadedFile.findMany({
       where: {
         expiresAt: {
           lt: new Date(),
         },
+        gradingResults: { none: {} },
       },
       select: { id: true, fileKey: true },
     });
 
     if (expiredFiles.length === 0) {
-      return { deletedCount: 0 };
+      return { deletedCount: 0, skippedCount: 0 };
+    }
+
+    const referencedIds = await getReferencedFileIds();
+    const deletableFiles = expiredFiles.filter((file) => !referencedIds.has(file.id));
+    const skippedCount = expiredFiles.length - deletableFiles.length;
+
+    if (deletableFiles.length === 0) {
+      logger.info(`No expired files to clean up (${skippedCount} still referenced)`);
+      return { deletedCount: 0, skippedCount };
     }
 
     // Delete from database
     const deleteResult = await db.uploadedFile.deleteMany({
       where: {
-        id: { in: expiredFiles.map((f) => f.id) },
+        id: { in: deletableFiles.map((f) => f.id) },
       },
     });
 
     // TODO: Delete from storage
     // Note: Storage cleanup should be handled by a background job
 
-    logger.info(`Cleaned up ${deleteResult.count} expired files`);
+    logger.info(`Cleaned up ${deleteResult.count} expired files (skipped ${skippedCount} still referenced)`);
 
-    return { deletedCount: deleteResult.count };
+    return { deletedCount: deleteResult.count, skippedCount };
   } catch (error) {
     logger.error({ err: error }, 'Failed to cleanup expired files:');
     return {
       deletedCount: 0,
+      skippedCount: 0,
       error: error instanceof Error ? error.message : 'Failed to cleanup files',
     };
   }

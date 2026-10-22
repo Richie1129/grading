@@ -1,5 +1,6 @@
 # Multi-stage build for WebSocket server
-FROM node:20-alpine AS base
+# Node 20 已 EOL；釘到確切修補版 22.23.4（含 2026-10 安全修補，CVE-2026-111497 等）
+FROM node:22.23.4-alpine AS base
 
 # Install dependencies only when needed
 FROM base AS deps

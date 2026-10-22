@@ -1,4 +1,6 @@
-FROM node:22-alpine AS builder
+# 釘到確切修補版：22.23.4 含 2026-10 安全修補（CVE-2026-111497 等）；production 明確指定 bookworm，
+# 避免 slim 預設發行版換成 trixie 後 chromium 相依套件名稱（如 libasound2）對不上
+FROM node:22.23.4-alpine AS builder
 
 ARG BUILD_VERSION=1.0.0
 ARG BUILD_BRANCH=unknown
@@ -21,7 +23,7 @@ RUN echo "{\"version\":\"${BUILD_VERSION}\",\"branch\":\"${BUILD_BRANCH}\",\"com
 
 RUN npm run build
 
-FROM node:22-slim AS production
+FROM node:22.23.4-bookworm-slim AS production
 
 WORKDIR /app
 
